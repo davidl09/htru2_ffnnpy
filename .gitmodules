@@ -1,0 +1,3 @@
+[submodule "submodules/ffnnpy"]
+	path = submodules/ffnnpy
+	url = git@github.com:davidl09/ffnnpy
