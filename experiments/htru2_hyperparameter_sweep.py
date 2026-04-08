@@ -27,13 +27,21 @@ from ffnnpy.neural_net import (
     AcceleratedRuntime,
     AcceleratedTrainingConfig,
     ActivationFunc,
+    TrainingResult,
     build_accelerated_network,
     fit_dataset_accelerated,
+    save_network,
+)
+from model_hyperparams import (
+    DEFAULT_EVALUATION_POINTS,
+    ModelHyperparameters,
+    write_hyperparameters,
 )
 
 
 DEFAULT_BATCH_SIZE = 256
-DEFAULT_RUNTIME = AcceleratedRuntime.numba
+DEFAULT_EVALUATION_POINT_COUNT = DEFAULT_EVALUATION_POINTS
+DEFAULT_RUNTIME = AcceleratedRuntime.numpy
 DEFAULT_ACTIVATION = ActivationFunc.sigmoid
 DEFAULT_SPLIT_SEED = 20260407
 SCREEN_MAX_POWER = 14
@@ -59,7 +67,7 @@ ARCHITECTURE_CANDIDATES: tuple[tuple[str, tuple[int, ...]], ...] = (
 )
 
 TRAIN_SPLIT_CANDIDATES: tuple[float, ...] = (0.60, 0.70, 0.75, 0.80, 0.85, 0.90)
-LEARNING_RATE_CANDIDATES: tuple[float, ...] = (0.001, 0.003, 0.01, 0.03, 0.10)
+LEARNING_RATE_CANDIDATES: tuple[float, ...] = (0.10,)
 
 _WORKER_FEATURES: np.ndarray | None = None
 _WORKER_LABELS: np.ndarray | None = None
@@ -98,6 +106,32 @@ class RunResult:
     final_accuracy: float
     best_accuracy: float
     elapsed_seconds: float
+
+
+def build_training_config(spec: RunSpec) -> AcceleratedTrainingConfig:
+    return AcceleratedTrainingConfig(
+        learning_rate=spec.learning_rate,
+        max_power=spec.max_power,
+        evaluation_points=DEFAULT_EVALUATION_POINT_COUNT,
+        seed=spec.init_seed,
+        batch_size=spec.batch_size,
+        runtime=DEFAULT_RUNTIME,
+    )
+
+
+def build_model_hyperparameters(spec: RunSpec) -> ModelHyperparameters:
+    return ModelHyperparameters(
+        train_fraction=spec.train_fraction,
+        split_seed=spec.split_seed,
+        hidden_layer_shapes=spec.architecture_shape,
+        activation=(DEFAULT_ACTIVATION.value,),
+        seed=spec.init_seed,
+        learning_rate=spec.learning_rate,
+        max_power=spec.max_power,
+        evaluation_points=DEFAULT_EVALUATION_POINT_COUNT,
+        batch_size=spec.batch_size,
+        runtime=DEFAULT_RUNTIME.value,
+    )
 
 
 def default_jobs() -> int:
@@ -227,44 +261,14 @@ def initialize_worker(dataset_path: str) -> None:
     warm_up_numba(features, labels)
 
 
-def run_experiment(
+def summarize_training_run(
     *,
-    features: np.ndarray,
-    labels: np.ndarray,
     spec: RunSpec,
+    train_samples: int,
+    test_samples: int,
+    result: TrainingResult,
+    elapsed_seconds: float,
 ) -> RunResult:
-    x_train, y_train, x_test, y_test = stratified_split(
-        features,
-        labels,
-        train_fraction=spec.train_fraction,
-        split_seed=spec.split_seed,
-    )
-
-    network = build_accelerated_network(
-        input_layer_dim=features.shape[1],
-        hidden_layer_shapes=spec.architecture_shape,
-        activation=DEFAULT_ACTIVATION,
-        seed=spec.init_seed,
-        runtime=DEFAULT_RUNTIME,
-    )
-    config = AcceleratedTrainingConfig(
-        learning_rate=spec.learning_rate,
-        max_power=spec.max_power,
-        batch_size=spec.batch_size,
-        runtime=DEFAULT_RUNTIME,
-    )
-
-    started = time.perf_counter()
-    result = fit_dataset_accelerated(
-        network=network,
-        train_inputs=x_train,
-        train_targets=y_train,
-        config=config,
-        evaluation_inputs=x_test,
-        evaluation_targets=y_test,
-    )
-    elapsed = time.perf_counter() - started
-
     milestone_accuracies = {
         step: compute_accuracy(predictions, result.evaluation_targets)
         for step, predictions in result.snapshots.items()
@@ -285,16 +289,72 @@ def run_experiment(
         split_seed=spec.split_seed,
         max_power=spec.max_power,
         batch_size=spec.batch_size,
-        train_samples=int(x_train.shape[0]),
-        test_samples=int(x_test.shape[0]),
+        train_samples=train_samples,
+        test_samples=test_samples,
         final_step=final_step,
         best_step=best_step,
         final_loss=float(result.losses[final_step]),
         best_loss=float(result.losses[best_step]),
         final_accuracy=milestone_accuracies[final_step],
         best_accuracy=milestone_accuracies[best_step],
-        elapsed_seconds=elapsed,
+        elapsed_seconds=elapsed_seconds,
     )
+
+
+def train_experiment(
+    *,
+    features: np.ndarray,
+    labels: np.ndarray,
+    spec: RunSpec,
+) -> tuple[RunResult, AcceleratedTrainingConfig, TrainingResult]:
+    x_train, y_train, x_test, y_test = stratified_split(
+        features,
+        labels,
+        train_fraction=spec.train_fraction,
+        split_seed=spec.split_seed,
+    )
+
+    network = build_accelerated_network(
+        input_layer_dim=features.shape[1],
+        hidden_layer_shapes=spec.architecture_shape,
+        activation=DEFAULT_ACTIVATION,
+        seed=spec.init_seed,
+        runtime=DEFAULT_RUNTIME,
+    )
+    config = build_training_config(spec)
+
+    started = time.perf_counter()
+    result = fit_dataset_accelerated(
+        network=network,
+        train_inputs=x_train,
+        train_targets=y_train,
+        config=config,
+        evaluation_inputs=x_test,
+        evaluation_targets=y_test,
+    )
+    elapsed = time.perf_counter() - started
+
+    return (
+        summarize_training_run(
+            spec=spec,
+            train_samples=int(x_train.shape[0]),
+            test_samples=int(x_test.shape[0]),
+            result=result,
+            elapsed_seconds=elapsed,
+        ),
+        config,
+        result,
+    )
+
+
+def run_experiment(
+    *,
+    features: np.ndarray,
+    labels: np.ndarray,
+    spec: RunSpec,
+) -> RunResult:
+    run_result, _, _ = train_experiment(features=features, labels=labels, spec=spec)
+    return run_result
 
 
 def run_experiment_in_worker(spec: RunSpec) -> RunResult:
@@ -410,6 +470,41 @@ def describe_split(train_fraction: float, total_rows: int) -> str:
     return f"{train_fraction:.2f} train / {1.0 - train_fraction:.2f} test (~{train_rows}/{test_rows} rows)"
 
 
+def parse_shape_text(shape_text: str) -> tuple[int, ...]:
+    return tuple(int(part.strip()) for part in shape_text.split("->"))
+
+
+def spec_from_result(row: RunResult) -> RunSpec:
+    return RunSpec(
+        stage=row.stage,
+        architecture_name=row.architecture_name,
+        architecture_shape=parse_shape_text(row.architecture_shape),
+        train_fraction=row.train_fraction,
+        learning_rate=row.learning_rate,
+        init_seed=row.init_seed,
+        split_seed=row.split_seed,
+        max_power=row.max_power,
+        batch_size=row.batch_size,
+    )
+
+
+def choose_best_run(rows: Iterable[RunResult], *, stage_name: str) -> RunResult:
+    stage_rows = [row for row in rows if row.stage == stage_name]
+    if not stage_rows:
+        raise ValueError(f"No results found for stage '{stage_name}'")
+
+    return max(
+        stage_rows,
+        key=lambda row: (
+            row.final_accuracy,
+            -row.final_loss,
+            row.best_accuracy,
+            -row.best_loss,
+            -row.init_seed,
+        ),
+    )
+
+
 def write_summary(
     *,
     output_dir: Path,
@@ -420,6 +515,9 @@ def write_summary(
     raw_results: list[RunResult],
     stage_summaries: dict[str, list[dict[str, object]]],
     final_choice: dict[str, object],
+    saved_model_path: Path,
+    hyperparams_path: Path,
+    saved_model_result: RunResult,
 ) -> None:
     summary_path = output_dir / "summary.md"
     json_path = output_dir / "summary.json"
@@ -453,6 +551,11 @@ def write_summary(
         f"- Final confirmation mean accuracy: `{100.0 * final_confirm['mean_final_accuracy']:.3f}%`",
         f"- Final confirmation best accuracy: `{100.0 * final_confirm['max_final_accuracy']:.3f}%`",
         f"- Final confirmation mean loss: `{final_confirm['mean_final_loss']:.6f}`",
+        f"- Saved best model: `{saved_model_path.name}`",
+        f"- Saved training config: `{hyperparams_path.name}`",
+        f"- Saved model seed: `{saved_model_result.init_seed}`",
+        f"- Saved model held-out final accuracy: `{100.0 * saved_model_result.final_accuracy:.3f}%`",
+        f"- Saved model held-out final loss: `{saved_model_result.final_loss:.6f}`",
         "",
         "## Architecture sweep",
         "",
@@ -486,6 +589,10 @@ def write_summary(
 
     json_payload = {
         "final_choice": final_choice,
+        "saved_model": {
+            "path": saved_model_path.name,
+            "result": asdict(saved_model_result),
+        },
         "best_architecture": best_arch,
         "best_split": best_split,
         "best_learning_rate": best_lr,
@@ -686,7 +793,7 @@ def build_final_confirm_specs(
 
 
 def shape_from_summary(row: dict[str, object]) -> tuple[int, ...]:
-    return tuple(int(part.strip()) for part in str(row["architecture_shape"]).split("->"))
+    return parse_shape_text(str(row["architecture_shape"]))
 
 
 def default_output_dir() -> Path:
@@ -852,6 +959,34 @@ def main() -> None:
         "train_fraction": best_train_fraction,
         "learning_rate": best_lr_value,
     }
+    best_final_run = choose_best_run(raw_results, stage_name="final_confirm")
+    best_final_spec = spec_from_result(best_final_run)
+    best_model_path = output_dir / "best_model.ffnnpy"
+    best_hyperparams_path = output_dir / "hyperparams.json"
+
+    print(
+        "[save] "
+        f"retraining best final_confirm run "
+        f"seed={best_final_spec.init_seed} "
+        f"arch={best_final_spec.architecture_name} "
+        f"split={best_final_spec.train_fraction:.2f} "
+        f"lr={best_final_spec.learning_rate:.4f}"
+    )
+    saved_model_result, saved_model_config, saved_training_result = train_experiment(
+        features=features,
+        labels=labels,
+        spec=best_final_spec,
+    )
+    save_network(
+        saved_training_result.network,
+        best_model_path,
+        training_config=saved_model_config,
+    )
+    write_hyperparameters(
+        best_hyperparams_path,
+        build_model_hyperparameters(best_final_spec),
+    )
+
     write_summary(
         output_dir=output_dir,
         dataset_rows=int(features.shape[0]),
@@ -861,12 +996,17 @@ def main() -> None:
         raw_results=raw_results,
         stage_summaries=stage_summaries,
         final_choice=final_choice,
+        saved_model_path=best_model_path,
+        hyperparams_path=best_hyperparams_path,
+        saved_model_result=saved_model_result,
     )
 
     print(
         "[done] "
         f"summary={output_dir / 'summary.md'} "
-        f"results={csv_path}"
+        f"results={csv_path} "
+        f"model={best_model_path} "
+        f"hyperparams={best_hyperparams_path}"
     )
 
 

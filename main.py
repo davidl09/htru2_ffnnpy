@@ -31,7 +31,7 @@ def main():
     
     nn = build_accelerated_network(
         input_layer_dim=x.shape[1],
-        hidden_layer_shapes=(128, 64, 32, 1), 
+        hidden_layer_shapes=(32, 1), 
         activation=ActivationFunc.sigmoid,
         seed=random.randint(0,512), 
         runtime=AcceleratedRuntime.numba
