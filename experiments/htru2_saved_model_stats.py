@@ -14,12 +14,16 @@ ROOT = Path(__file__).resolve().parents[1]
 if str(ROOT) not in sys.path:
     sys.path.insert(0, str(ROOT))
 
+from dataset_split import apply_dataset_split, default_dataset_split_path, load_dataset_split
+from ffnnpy_compat import (
+    build_accelerated_network_with_loss,
+    configured_loss_name,
+    resolve_activation_sequence,
+)
 import read_htru2_arff
 from ffnnpy.neural_net import (
     AcceleratedRuntime,
     AcceleratedTrainingConfig,
-    ActivationFunc,
-    build_accelerated_network,
     fit_dataset_accelerated,
     get_loss_func,
     load_network,
@@ -27,6 +31,7 @@ from ffnnpy.neural_net import (
     predict_dataset_accelerated,
 )
 from model_hyperparams import load_hyperparameters
+from project_paths import resolve_project_path
 from training_history import (
     build_training_history_payload,
     default_training_history_path,
@@ -52,13 +57,19 @@ def parse_args() -> argparse.Namespace:
     parser.add_argument(
         "model_path",
         type=Path,
-        help="Path to the saved .ffnnpy model artifact.",
+        help=(
+            "Path to the saved .ffnnpy model artifact, relative to the repository "
+            "root or as an absolute filesystem path."
+        ),
     )
     parser.add_argument(
         "--dataset-path",
         type=Path,
         default=read_htru2_arff.DEFAULT_ARFF_PATH,
-        help="Path to the HTRU2 ARFF file. Defaults to the bundled dataset.",
+        help=(
+            "Path to the HTRU2 ARFF file, relative to the repository root or as an "
+            "absolute filesystem path. Defaults to the bundled dataset."
+        ),
     )
     parser.add_argument(
         "--threshold",
@@ -77,8 +88,9 @@ def parse_args() -> argparse.Namespace:
         type=Path,
         default=None,
         help=(
-            "Path to write the detailed stats JSON report. "
-            "Defaults to <model_stem>_stats.json beside the model."
+            "Path to write the detailed stats JSON report, relative to the "
+            "repository root or as an absolute filesystem path. Defaults to "
+            "<model_stem>_stats.json beside the model."
         ),
     )
     return parser.parse_args()
@@ -161,6 +173,8 @@ def _predict_model_outputs(
         "layer_activation_funcs": [
             activation.value for activation in artifact.network.config.layer_activation_funcs
         ],
+        "loss_func": configured_loss_name(artifact.network.config.loss_func),
+        "positive_class_weight": float(artifact.network.config.positive_class_weight),
         "resolved_runtime": resolved_runtime,
         "raw_outputs_used": raw_scores_available,
         "saved_training_config": (
@@ -213,17 +227,6 @@ def _stratified_split(
         features[test_indices],
         labels[test_indices],
     )
-
-
-def _resolve_activation_sequence(
-    activation_values: Sequence[str],
-    layer_count: int,
-) -> ActivationFunc | tuple[ActivationFunc, ...]:
-    if len(activation_values) == 1:
-        return ActivationFunc(activation_values[0])
-    if len(activation_values) != layer_count:
-        raise ValueError("activation count must be 1 or match the number of hidden layers")
-    return tuple(ActivationFunc(value) for value in activation_values)
 
 
 def _compute_binary_classification_stats(
@@ -354,7 +357,16 @@ def _compute_binary_classification_stats(
 
 def _valid_training_history(payload: dict[str, Any]) -> bool:
     points = payload.get("points")
-    return isinstance(points, list) and len(points) > 0
+    if not isinstance(points, list) or not points:
+        return False
+    if str(payload.get("milestone_label")) != "Training samples seen":
+        return False
+    return all(
+        isinstance(point, dict)
+        and "milestone" in point
+        and "loss" in point
+        for point in points
+    )
 
 
 def _load_saved_training_history(model_path: Path) -> dict[str, Any] | None:
@@ -372,6 +384,30 @@ def _load_saved_training_history(model_path: Path) -> dict[str, Any] | None:
     return payload
 
 
+def _resolve_replay_split(
+    *,
+    model_path: Path,
+    features: np.ndarray,
+    labels: np.ndarray,
+    train_fraction: float,
+    split_seed: int,
+) -> tuple[np.ndarray, np.ndarray, np.ndarray, np.ndarray]:
+    split_path = default_dataset_split_path(model_path)
+    if split_path.exists():
+        try:
+            split = load_dataset_split(split_path)
+            return apply_dataset_split(features, labels, split)
+        except ValueError:
+            pass
+
+    return _stratified_split(
+        features,
+        labels,
+        train_fraction=train_fraction,
+        split_seed=split_seed,
+    )
+
+
 def _replay_training_history(
     *,
     model_path: Path,
@@ -383,28 +419,31 @@ def _replay_training_history(
 
     hyperparams = load_hyperparameters(hyperparams_path)
     features, labels, _ = read_htru2_arff.load_htru2(dataset_path)
-    train_inputs, train_targets, test_inputs, test_targets = _stratified_split(
-        features,
-        labels,
+    train_inputs, train_targets, test_inputs, test_targets = _resolve_replay_split(
+        model_path=model_path,
+        features=features,
+        labels=labels,
         train_fraction=hyperparams.train_fraction,
         split_seed=hyperparams.split_seed,
     )
 
-    activation = _resolve_activation_sequence(
+    activation = resolve_activation_sequence(
         hyperparams.activation,
         len(hyperparams.hidden_layer_shapes),
     )
     runtime = AcceleratedRuntime(hyperparams.runtime)
-    network = build_accelerated_network(
+    network = build_accelerated_network_with_loss(
         input_layer_dim=features.shape[1],
         hidden_layer_shapes=hyperparams.hidden_layer_shapes,
         activation=activation,
+        loss_func_name=hyperparams.loss_func,
+        positive_class_weight=hyperparams.positive_class_weight,
         seed=hyperparams.seed,
         runtime=runtime,
     )
     config = AcceleratedTrainingConfig(
         learning_rate=hyperparams.learning_rate,
-        max_power=hyperparams.max_power,
+        milestones=hyperparams.milestones,
         evaluation_points=hyperparams.evaluation_points,
         seed=hyperparams.seed,
         batch_size=hyperparams.batch_size,
@@ -420,7 +459,6 @@ def _replay_training_history(
     )
     history = build_training_history_payload(
         result,
-        batch_size=config.batch_size,
         source="replayed_from_hyperparams",
     )
     history["hyperparams_path"] = str(hyperparams_path)
@@ -433,7 +471,10 @@ def _replay_training_history(
     )
     saved_targets = np.asarray(test_targets, dtype=float).reshape(-1, 1)
     saved_predictions = np.asarray(saved_outputs, dtype=float).reshape(-1, 1)
-    loss_fn = get_loss_func(saved_artifact.network.config.loss_func)
+    loss_fn = get_loss_func(
+        saved_artifact.network.config.loss_func,
+        positive_class_weight=float(saved_artifact.network.config.positive_class_weight),
+    )
     saved_model_final_loss = float(loss_fn(saved_targets, saved_predictions))
     history["verification"] = {
         "saved_model_final_loss": saved_model_final_loss,
@@ -450,8 +491,8 @@ def evaluate_saved_model(
     threshold: float = DEFAULT_THRESHOLD,
     runtime_name: str = "saved",
 ) -> dict[str, Any]:
-    model_path = Path(model_path)
-    dataset_path = Path(dataset_path)
+    model_path = resolve_project_path(model_path)
+    dataset_path = resolve_project_path(dataset_path)
     if not 0.0 <= threshold <= 1.0:
         raise ValueError("threshold must be between 0 and 1")
 
@@ -500,16 +541,22 @@ def evaluate_saved_model(
 
 def main() -> None:
     args = parse_args()
+    model_path = resolve_project_path(args.model_path)
+    dataset_path = resolve_project_path(args.dataset_path)
     stats = evaluate_saved_model(
-        model_path=args.model_path,
-        dataset_path=args.dataset_path,
+        model_path=model_path,
+        dataset_path=dataset_path,
         threshold=args.threshold,
         runtime_name=args.runtime,
     )
     payload = json.dumps(stats, indent=2)
     print(payload)
 
-    output_json_path = args.output_json or default_output_json_path(args.model_path)
+    output_json_path = (
+        resolve_project_path(args.output_json)
+        if args.output_json is not None
+        else default_output_json_path(model_path)
+    )
     output_json_path.parent.mkdir(parents=True, exist_ok=True)
     output_json_path.write_text(payload + "\n", encoding="utf-8")
 

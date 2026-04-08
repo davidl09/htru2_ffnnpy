@@ -22,21 +22,26 @@ ROOT = Path(__file__).resolve().parents[1]
 if str(ROOT) not in sys.path:
     sys.path.insert(0, str(ROOT))
 
+from ffnnpy_compat import build_accelerated_network_with_loss
 import read_htru2_arff
 from ffnnpy.neural_net import (
     AcceleratedRuntime,
     AcceleratedTrainingConfig,
     ActivationFunc,
     TrainingResult,
-    build_accelerated_network,
     fit_dataset_accelerated,
+    powers_of_two_milestones,
     save_network,
 )
 from model_hyperparams import (
+    DEFAULT_LOSS_FUNC,
     DEFAULT_EVALUATION_POINTS,
+    DEFAULT_POSITIVE_CLASS_WEIGHT,
     ModelHyperparameters,
+    positive_float,
     write_hyperparameters,
 )
+from project_paths import PROJECT_ROOT, resolve_project_path
 
 
 DEFAULT_BATCH_SIZE = 256
@@ -44,9 +49,9 @@ DEFAULT_EVALUATION_POINT_COUNT = DEFAULT_EVALUATION_POINTS
 DEFAULT_RUNTIME = AcceleratedRuntime.numpy
 DEFAULT_ACTIVATION = ActivationFunc.sigmoid
 DEFAULT_SPLIT_SEED = 20260407
-SCREEN_MAX_POWER = 14
-SEARCH_MAX_POWER = 15
-FINAL_MAX_POWER = 16
+SCREEN_MILESTONES = powers_of_two_milestones(14)
+SEARCH_MILESTONES = powers_of_two_milestones(15)
+FINAL_MILESTONES = powers_of_two_milestones(16)
 DEFAULT_ARCH_SPLIT = 0.80
 DEFAULT_ARCH_LR = 0.01
 ARCH_CONFIRM_SEEDS = (11, 23, 47)
@@ -80,9 +85,10 @@ class RunSpec:
     architecture_shape: tuple[int, ...]
     train_fraction: float
     learning_rate: float
+    positive_class_weight: float
     init_seed: int
     split_seed: int
-    max_power: int
+    milestones: tuple[int, ...]
     batch_size: int = DEFAULT_BATCH_SIZE
 
 
@@ -93,14 +99,15 @@ class RunResult:
     architecture_shape: str
     train_fraction: float
     learning_rate: float
+    positive_class_weight: float
     init_seed: int
     split_seed: int
-    max_power: int
+    milestones: tuple[int, ...]
     batch_size: int
     train_samples: int
     test_samples: int
-    final_step: int
-    best_step: int
+    final_milestone: int
+    best_milestone: int
     final_loss: float
     best_loss: float
     final_accuracy: float
@@ -111,7 +118,7 @@ class RunResult:
 def build_training_config(spec: RunSpec) -> AcceleratedTrainingConfig:
     return AcceleratedTrainingConfig(
         learning_rate=spec.learning_rate,
-        max_power=spec.max_power,
+        milestones=spec.milestones,
         evaluation_points=DEFAULT_EVALUATION_POINT_COUNT,
         seed=spec.init_seed,
         batch_size=spec.batch_size,
@@ -125,9 +132,11 @@ def build_model_hyperparameters(spec: RunSpec) -> ModelHyperparameters:
         split_seed=spec.split_seed,
         hidden_layer_shapes=spec.architecture_shape,
         activation=(DEFAULT_ACTIVATION.value,),
+        loss_func=DEFAULT_LOSS_FUNC,
+        positive_class_weight=spec.positive_class_weight,
         seed=spec.init_seed,
         learning_rate=spec.learning_rate,
-        max_power=spec.max_power,
+        milestones=spec.milestones,
         evaluation_points=DEFAULT_EVALUATION_POINT_COUNT,
         batch_size=spec.batch_size,
         runtime=DEFAULT_RUNTIME.value,
@@ -150,7 +159,10 @@ def parse_args() -> argparse.Namespace:
         "--output-dir",
         type=Path,
         default=None,
-        help="Directory for CSV/JSON/Markdown outputs.",
+        help=(
+            "Directory for CSV/JSON/Markdown outputs, relative to the repository "
+            "root or as an absolute filesystem path."
+        ),
     )
     parser.add_argument(
         "--split-seed",
@@ -170,11 +182,28 @@ def parse_args() -> argparse.Namespace:
         default="auto",
         help="Parallel executor backend. 'auto' prefers processes and falls back to threads.",
     )
+    parser.add_argument(
+        "--positive-class-weight",
+        type=positive_float,
+        default=DEFAULT_POSITIVE_CLASS_WEIGHT,
+        help=(
+            "Positive-class weight used by cross-entropy loss. "
+            "Set to 1.0 to keep the sweep unweighted."
+        ),
+    )
     return parser.parse_args()
 
 
 def format_shape(shape: tuple[int, ...]) -> str:
     return " -> ".join(str(width) for width in shape)
+
+
+def describe_milestones(milestones: tuple[int, ...]) -> str:
+    if len(milestones) <= 6:
+        return ", ".join(str(milestone) for milestone in milestones)
+    head = ", ".join(str(milestone) for milestone in milestones[:3])
+    tail = ", ".join(str(milestone) for milestone in milestones[-2:])
+    return f"{head}, ..., {tail}"
 
 
 def clamp_train_count(class_count: int, train_fraction: float) -> int:
@@ -225,20 +254,27 @@ def compute_accuracy(scores: np.ndarray, targets: np.ndarray) -> float:
     return float(np.mean(predictions == targets))
 
 
-def warm_up_numba(features: np.ndarray, labels: np.ndarray) -> None:
+def warm_up_numba(
+    features: np.ndarray,
+    labels: np.ndarray,
+    *,
+    positive_class_weight: float,
+) -> None:
     sample_count = min(64, features.shape[0])
     x_batch = features[:sample_count]
     y_batch = labels[:sample_count]
-    network = build_accelerated_network(
+    network = build_accelerated_network_with_loss(
         input_layer_dim=features.shape[1],
         hidden_layer_shapes=(4, 1),
         activation=DEFAULT_ACTIVATION,
+        loss_func_name=DEFAULT_LOSS_FUNC,
+        positive_class_weight=positive_class_weight,
         seed=0,
         runtime=DEFAULT_RUNTIME,
     )
     config = AcceleratedTrainingConfig(
         learning_rate=DEFAULT_ARCH_LR,
-        max_power=0,
+        milestones=(1,),
         batch_size=max(1, sample_count),
         runtime=DEFAULT_RUNTIME,
     )
@@ -252,13 +288,17 @@ def warm_up_numba(features: np.ndarray, labels: np.ndarray) -> None:
     )
 
 
-def initialize_worker(dataset_path: str) -> None:
+def initialize_worker(dataset_path: str, positive_class_weight: float) -> None:
     global _WORKER_FEATURES, _WORKER_LABELS
 
     features, labels, _ = read_htru2_arff.load_htru2(dataset_path)
     _WORKER_FEATURES = features
     _WORKER_LABELS = labels
-    warm_up_numba(features, labels)
+    warm_up_numba(
+        features,
+        labels,
+        positive_class_weight=positive_class_weight,
+    )
 
 
 def summarize_training_run(
@@ -270,13 +310,13 @@ def summarize_training_run(
     elapsed_seconds: float,
 ) -> RunResult:
     milestone_accuracies = {
-        step: compute_accuracy(predictions, result.evaluation_targets)
-        for step, predictions in result.snapshots.items()
+        milestone: compute_accuracy(predictions, result.evaluation_targets)
+        for milestone, predictions in result.snapshots.items()
     }
-    final_step = result.milestone_steps[-1]
-    best_step = max(
-        result.milestone_steps,
-        key=lambda step: (milestone_accuracies[step], -result.losses[step]),
+    final_milestone = result.milestones[-1]
+    best_milestone = max(
+        result.milestones,
+        key=lambda milestone: (milestone_accuracies[milestone], -result.losses[milestone]),
     )
 
     return RunResult(
@@ -285,18 +325,19 @@ def summarize_training_run(
         architecture_shape=format_shape(spec.architecture_shape),
         train_fraction=spec.train_fraction,
         learning_rate=spec.learning_rate,
+        positive_class_weight=spec.positive_class_weight,
         init_seed=spec.init_seed,
         split_seed=spec.split_seed,
-        max_power=spec.max_power,
+        milestones=spec.milestones,
         batch_size=spec.batch_size,
         train_samples=train_samples,
         test_samples=test_samples,
-        final_step=final_step,
-        best_step=best_step,
-        final_loss=float(result.losses[final_step]),
-        best_loss=float(result.losses[best_step]),
-        final_accuracy=milestone_accuracies[final_step],
-        best_accuracy=milestone_accuracies[best_step],
+        final_milestone=final_milestone,
+        best_milestone=best_milestone,
+        final_loss=float(result.losses[final_milestone]),
+        best_loss=float(result.losses[best_milestone]),
+        final_accuracy=milestone_accuracies[final_milestone],
+        best_accuracy=milestone_accuracies[best_milestone],
         elapsed_seconds=elapsed_seconds,
     )
 
@@ -314,10 +355,12 @@ def train_experiment(
         split_seed=spec.split_seed,
     )
 
-    network = build_accelerated_network(
+    network = build_accelerated_network_with_loss(
         input_layer_dim=features.shape[1],
         hidden_layer_shapes=spec.architecture_shape,
         activation=DEFAULT_ACTIVATION,
+        loss_func_name=DEFAULT_LOSS_FUNC,
+        positive_class_weight=spec.positive_class_weight,
         seed=spec.init_seed,
         runtime=DEFAULT_RUNTIME,
     )
@@ -366,6 +409,7 @@ def run_experiment_in_worker(spec: RunSpec) -> RunResult:
 def append_result(csv_path: Path, row: RunResult) -> None:
     csv_path.parent.mkdir(parents=True, exist_ok=True)
     row_dict = asdict(row)
+    row_dict["milestones"] = json.dumps(list(row.milestones))
     write_header = not csv_path.exists()
     with csv_path.open("a", newline="", encoding="utf-8") as handle:
         writer = csv.DictWriter(handle, fieldnames=list(row_dict))
@@ -383,7 +427,8 @@ def aggregate_results(rows: Iterable[RunResult]) -> list[dict[str, object]]:
             row.architecture_shape,
             row.train_fraction,
             row.learning_rate,
-            row.max_power,
+            row.positive_class_weight,
+            row.milestones,
             row.batch_size,
         )
         grouped[key].append(row)
@@ -401,8 +446,9 @@ def aggregate_results(rows: Iterable[RunResult]) -> list[dict[str, object]]:
                 "architecture_shape": key[2],
                 "train_fraction": key[3],
                 "learning_rate": key[4],
-                "max_power": key[5],
-                "batch_size": key[6],
+                "positive_class_weight": key[5],
+                "milestones": list(key[6]),
+                "batch_size": key[7],
                 "runs": len(entries),
                 "mean_final_accuracy": statistics.fmean(final_accuracies),
                 "std_final_accuracy": (
@@ -481,9 +527,10 @@ def spec_from_result(row: RunResult) -> RunSpec:
         architecture_shape=parse_shape_text(row.architecture_shape),
         train_fraction=row.train_fraction,
         learning_rate=row.learning_rate,
+        positive_class_weight=row.positive_class_weight,
         init_seed=row.init_seed,
         split_seed=row.split_seed,
-        max_power=row.max_power,
+        milestones=row.milestones,
         batch_size=row.batch_size,
     )
 
@@ -534,20 +581,23 @@ def write_summary(
         "",
         f"- Dataset rows: {dataset_rows}",
         f"- Activation: `{DEFAULT_ACTIVATION.value}`",
+        f"- Loss: `{DEFAULT_LOSS_FUNC}`",
+        f"- Positive class weight: `{final_choice['positive_class_weight']:.6g}`",
         f"- Runtime: `{DEFAULT_RUNTIME.value}`",
         f"- Batch size: `{DEFAULT_BATCH_SIZE}`",
         f"- Parallel workers: `{jobs}`",
         f"- Parallel executor: `{executor_mode}`",
         f"- Split strategy: deterministic stratified shuffle with split seed `{split_seed}`",
-        f"- Screening budget: `2^{SCREEN_MAX_POWER}` updates",
-        f"- Search budget: `2^{SEARCH_MAX_POWER}` updates",
-        f"- Final confirmation budget: `2^{FINAL_MAX_POWER}` updates",
+        f"- Screening milestones (samples): `{describe_milestones(SCREEN_MILESTONES)}`",
+        f"- Search milestones (samples): `{describe_milestones(SEARCH_MILESTONES)}`",
+        f"- Final confirmation milestones (samples): `{describe_milestones(FINAL_MILESTONES)}`",
         "",
         "## Best configuration",
         "",
         f"- Architecture: `{final_choice['architecture_name']}` with shape `{final_choice['architecture_shape']}`",
         f"- Train/test split: {describe_split(final_choice['train_fraction'], dataset_rows)}",
         f"- Learning rate: `{final_choice['learning_rate']:.4f}`",
+        f"- Positive class weight: `{final_choice['positive_class_weight']:.6g}`",
         f"- Final confirmation mean accuracy: `{100.0 * final_confirm['mean_final_accuracy']:.3f}%`",
         f"- Final confirmation best accuracy: `{100.0 * final_confirm['max_final_accuracy']:.3f}%`",
         f"- Final confirmation mean loss: `{final_confirm['mean_final_loss']:.6f}`",
@@ -582,7 +632,7 @@ def write_summary(
         "## Notes",
         "",
         "- `best_accuracy` was tracked internally at every milestone, but rankings above use final held-out accuracy after the configured training budget.",
-        "- Intermediate sweeps used fewer updates than the final confirmation pass to keep the search tractable while still testing many configurations.",
+        "- Intermediate sweeps used fewer training samples than the final confirmation pass to keep the search tractable while still testing many configurations.",
         "- Per-run raw data is available in `results.csv`; aggregated data is mirrored in `summary.json`.",
     ]
     summary_path.write_text("\n".join(markdown_lines) + "\n", encoding="utf-8")
@@ -611,6 +661,7 @@ def print_stage_summary(stage_name: str, summaries: list[dict[str, object]]) -> 
         f"shape={winner['architecture_shape']} "
         f"split={winner['train_fraction']:.2f} "
         f"lr={winner['learning_rate']:.4f} "
+        f"pcw={winner['positive_class_weight']:.6g} "
         f"mean_final_acc={100.0 * winner['mean_final_accuracy']:.3f}% "
         f"best_final_acc={100.0 * winner['max_final_accuracy']:.3f}% "
         f"mean_loss={winner['mean_final_loss']:.6f}"
@@ -643,6 +694,7 @@ def run_stage(
                 f"shape={result.architecture_shape} "
                 f"split={result.train_fraction:.2f} "
                 f"lr={result.learning_rate:.4f} "
+                f"pcw={result.positive_class_weight:.6g} "
                 f"seed={result.init_seed} "
                 f"final_acc={100.0 * result.final_accuracy:.3f}% "
                 f"best_acc={100.0 * result.best_accuracy:.3f}% "
@@ -671,6 +723,7 @@ def run_stage(
                 f"shape={result.architecture_shape} "
                 f"split={result.train_fraction:.2f} "
                 f"lr={result.learning_rate:.4f} "
+                f"pcw={result.positive_class_weight:.6g} "
                 f"seed={result.init_seed} "
                 f"final_acc={100.0 * result.final_accuracy:.3f}% "
                 f"best_acc={100.0 * result.best_accuracy:.3f}% "
@@ -684,7 +737,10 @@ def run_stage(
     return summaries
 
 
-def build_architecture_screen_specs(split_seed: int) -> list[RunSpec]:
+def build_architecture_screen_specs(
+    split_seed: int,
+    positive_class_weight: float,
+) -> list[RunSpec]:
     return [
         RunSpec(
             stage="architecture_screen",
@@ -692,9 +748,10 @@ def build_architecture_screen_specs(split_seed: int) -> list[RunSpec]:
             architecture_shape=shape,
             train_fraction=DEFAULT_ARCH_SPLIT,
             learning_rate=DEFAULT_ARCH_LR,
+            positive_class_weight=positive_class_weight,
             init_seed=ARCH_CONFIRM_SEEDS[0],
             split_seed=split_seed,
-            max_power=SCREEN_MAX_POWER,
+            milestones=SCREEN_MILESTONES,
         )
         for name, shape in ARCHITECTURE_CANDIDATES
     ]
@@ -702,6 +759,7 @@ def build_architecture_screen_specs(split_seed: int) -> list[RunSpec]:
 
 def build_architecture_confirm_specs(
     split_seed: int,
+    positive_class_weight: float,
     top_architectures: list[dict[str, object]],
 ) -> list[RunSpec]:
     specs: list[RunSpec] = []
@@ -715,9 +773,10 @@ def build_architecture_confirm_specs(
                     architecture_shape=shape,
                     train_fraction=DEFAULT_ARCH_SPLIT,
                     learning_rate=DEFAULT_ARCH_LR,
+                    positive_class_weight=positive_class_weight,
                     init_seed=init_seed,
                     split_seed=split_seed,
-                    max_power=SEARCH_MAX_POWER,
+                    milestones=SEARCH_MILESTONES,
                 )
             )
     return specs
@@ -727,6 +786,7 @@ def build_split_specs(
     split_seed: int,
     architecture_name: str,
     architecture_shape: tuple[int, ...],
+    positive_class_weight: float,
 ) -> list[RunSpec]:
     specs: list[RunSpec] = []
     for train_fraction in TRAIN_SPLIT_CANDIDATES:
@@ -738,9 +798,10 @@ def build_split_specs(
                     architecture_shape=architecture_shape,
                     train_fraction=train_fraction,
                     learning_rate=DEFAULT_ARCH_LR,
+                    positive_class_weight=positive_class_weight,
                     init_seed=init_seed,
                     split_seed=split_seed,
-                    max_power=SEARCH_MAX_POWER,
+                    milestones=SEARCH_MILESTONES,
                 )
             )
     return specs
@@ -751,6 +812,7 @@ def build_learning_rate_specs(
     architecture_name: str,
     architecture_shape: tuple[int, ...],
     train_fraction: float,
+    positive_class_weight: float,
 ) -> list[RunSpec]:
     specs: list[RunSpec] = []
     for learning_rate in LEARNING_RATE_CANDIDATES:
@@ -762,9 +824,10 @@ def build_learning_rate_specs(
                     architecture_shape=architecture_shape,
                     train_fraction=train_fraction,
                     learning_rate=learning_rate,
+                    positive_class_weight=positive_class_weight,
                     init_seed=init_seed,
                     split_seed=split_seed,
-                    max_power=SEARCH_MAX_POWER,
+                    milestones=SEARCH_MILESTONES,
                 )
             )
     return specs
@@ -776,6 +839,7 @@ def build_final_confirm_specs(
     architecture_shape: tuple[int, ...],
     train_fraction: float,
     learning_rate: float,
+    positive_class_weight: float,
 ) -> list[RunSpec]:
     return [
         RunSpec(
@@ -784,9 +848,10 @@ def build_final_confirm_specs(
             architecture_shape=architecture_shape,
             train_fraction=train_fraction,
             learning_rate=learning_rate,
+            positive_class_weight=positive_class_weight,
             init_seed=init_seed,
             split_seed=split_seed,
-            max_power=FINAL_MAX_POWER,
+            milestones=FINAL_MILESTONES,
         )
         for init_seed in FINAL_CONFIRM_SEEDS
     ]
@@ -798,14 +863,14 @@ def shape_from_summary(row: dict[str, object]) -> tuple[int, ...]:
 
 def default_output_dir() -> Path:
     stamp = datetime.now().strftime("%Y%m%d_%H%M%S")
-    return Path("results") / f"htru2_hyperparameter_sweep_{stamp}"
+    return PROJECT_ROOT / "results" / f"htru2_hyperparameter_sweep_{stamp}"
 
 
 def main() -> None:
     args = parse_args()
     if args.jobs < 1:
         raise ValueError("--jobs must be at least 1")
-    output_dir = args.output_dir or default_output_dir()
+    output_dir = default_output_dir() if args.output_dir is None else resolve_project_path(args.output_dir)
     output_dir.mkdir(parents=True, exist_ok=True)
     csv_path = output_dir / "results.csv"
 
@@ -819,14 +884,19 @@ def main() -> None:
         f"features={features.shape[1]} "
         f"split_seed={args.split_seed} "
         f"jobs={args.jobs} "
-        f"executor={args.executor}"
+        f"executor={args.executor} "
+        f"positive_class_weight={args.positive_class_weight:.6g}"
     )
 
     stage_summaries: dict[str, list[dict[str, object]]] = {}
     executor_mode = "sequential"
     interrupted = False
     if args.jobs == 1:
-        warm_up_numba(features, labels)
+        warm_up_numba(
+            features,
+            labels,
+            positive_class_weight=args.positive_class_weight,
+        )
         print("[setup] numba warm-up complete")
         executor = None
         executor_resource = None
@@ -840,7 +910,10 @@ def main() -> None:
                     max_workers=args.jobs,
                     mp_context=get_context("spawn"),
                     initializer=initialize_worker,
-                    initargs=(str(read_htru2_arff.DEFAULT_ARFF_PATH),),
+                    initargs=(
+                        str(read_htru2_arff.DEFAULT_ARFF_PATH),
+                        args.positive_class_weight,
+                    ),
                 )
                 executor = executor_resource
                 executor_mode = "process"
@@ -854,7 +927,11 @@ def main() -> None:
                 print(f"[setup] process pool unavailable ({exc}); falling back to thread pool")
 
         if executor is None:
-            warm_up_numba(features, labels)
+            warm_up_numba(
+                features,
+                labels,
+                positive_class_weight=args.positive_class_weight,
+            )
             print("[setup] numba warm-up complete")
             executor_resource = ThreadPoolExecutor(max_workers=args.jobs)
             executor = executor_resource
@@ -864,7 +941,10 @@ def main() -> None:
     try:
         arch_screen = run_stage(
             stage_name="architecture_screen",
-            specs=build_architecture_screen_specs(args.split_seed),
+            specs=build_architecture_screen_specs(
+                args.split_seed,
+                args.positive_class_weight,
+            ),
             features=features,
             labels=labels,
             csv_path=csv_path,
@@ -876,7 +956,11 @@ def main() -> None:
 
         arch_confirm = run_stage(
             stage_name="architecture_confirm",
-            specs=build_architecture_confirm_specs(args.split_seed, arch_screen[:4]),
+            specs=build_architecture_confirm_specs(
+                args.split_seed,
+                args.positive_class_weight,
+                arch_screen[:4],
+            ),
             features=features,
             labels=labels,
             csv_path=csv_path,
@@ -896,6 +980,7 @@ def main() -> None:
                 args.split_seed,
                 best_architecture_name,
                 best_architecture_shape,
+                args.positive_class_weight,
             ),
             features=features,
             labels=labels,
@@ -916,6 +1001,7 @@ def main() -> None:
                 best_architecture_name,
                 best_architecture_shape,
                 best_train_fraction,
+                args.positive_class_weight,
             ),
             features=features,
             labels=labels,
@@ -937,6 +1023,7 @@ def main() -> None:
                 best_architecture_shape,
                 best_train_fraction,
                 best_lr_value,
+                args.positive_class_weight,
             ),
             features=features,
             labels=labels,
@@ -958,6 +1045,7 @@ def main() -> None:
         "architecture_shape": format_shape(best_architecture_shape),
         "train_fraction": best_train_fraction,
         "learning_rate": best_lr_value,
+        "positive_class_weight": args.positive_class_weight,
     }
     best_final_run = choose_best_run(raw_results, stage_name="final_confirm")
     best_final_spec = spec_from_result(best_final_run)

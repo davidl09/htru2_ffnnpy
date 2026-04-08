@@ -1,17 +1,20 @@
-from ffnnpy.neural_net.accelerated import fit_dataset_accelerated
-import read_htru2_arff
-import numpy as np
 import math
 import random
 
+import numpy as np
+
+from ffnnpy_compat import build_accelerated_network_with_loss
+import read_htru2_arff
 
 from ffnnpy.neural_net import (
     AcceleratedRuntime,
     AcceleratedTrainingConfig,
     ActivationFunc,
     AsyncProgressPrinter,
-    build_accelerated_network,
+    fit_dataset_accelerated,
+    powers_of_two_milestones,
 )
+from model_hyperparams import DEFAULT_LOSS_FUNC
 
 
 
@@ -29,17 +32,18 @@ def main():
     x_test = x[train_size:]
     
     
-    nn = build_accelerated_network(
+    nn = build_accelerated_network_with_loss(
         input_layer_dim=x.shape[1],
         hidden_layer_shapes=(32, 1), 
         activation=ActivationFunc.sigmoid,
+        loss_func_name=DEFAULT_LOSS_FUNC,
         seed=random.randint(0,512), 
         runtime=AcceleratedRuntime.numba
     )
     
     config = AcceleratedTrainingConfig(
         learning_rate=0.1,
-        max_power=17,
+        milestones=powers_of_two_milestones(17),
         evaluation_points=512,
         runtime=AcceleratedRuntime.numba
     )
@@ -55,13 +59,13 @@ def main():
             progress_logger=logger.log
         )
 
-    final_step = result.milestone_steps[-1]
-    test_scores = result.snapshots[final_step].reshape(-1)
+    final_milestone = result.milestones[-1]
+    test_scores = result.snapshots[final_milestone].reshape(-1)
     test_targets = result.evaluation_targets.reshape(-1)
     test_predictions = (test_scores >= 0.5).astype(test_targets.dtype)
     test_accuracy = np.mean(test_predictions == test_targets)
 
-    print(f"Reserved test loss: {result.losses[final_step]:.6f}")
+    print(f"Reserved test loss: {result.losses[final_milestone]:.6f}")
     print(f"Reserved test accuracy: {test_accuracy:.4%}")
 
 

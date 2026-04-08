@@ -1048,6 +1048,7 @@ source = { editable = "ffnnpy" }
 dependencies = [
     { name = "matplotlib" },
     { name = "numpy" },
+    { name = "scipy" },
     { name = "sympy" },
 ]
 
@@ -1059,8 +1060,9 @@ accelerated = [
 [package.metadata]
 requires-dist = [
     { name = "matplotlib", specifier = ">=3.10.8" },
-    { name = "numba", marker = "extra == 'accelerated'", specifier = ">=0.64.0" },
+    { name = "numba", marker = "extra == 'accelerated'", specifier = ">=0.65.0" },
     { name = "numpy", specifier = ">=2.4.4" },
+    { name = "scipy", specifier = ">=1.17.1" },
     { name = "sympy", specifier = ">=1.14.0" },
 ]
 provides-extras = ["accelerated"]

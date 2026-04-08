@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import argparse
+from pathlib import Path
 from typing import Sequence
 
 from model_hyperparams import (
@@ -14,13 +15,17 @@ from model_hyperparams import (
 def build_parser() -> argparse.ArgumentParser:
     parser = argparse.ArgumentParser(
         description=(
-            "Create a results/<subfolder>/hyperparams.json file containing all model "
-            "hyperparameters used by train_model.py."
+            "Create a hyperparams.json artifact containing the model hyperparameters "
+            "used by train_model.py."
         )
     )
     parser.add_argument(
-        "result_subfolder",
-        help="Name of the results/<subfolder>/ directory to create or update.",
+        "artifact_path",
+        type=Path,
+        help=(
+            "Artifact directory path relative to the repository root, or a direct "
+            "hyperparams.json path."
+        ),
     )
     add_hyperparameter_arguments(parser)
     return parser
@@ -33,7 +38,7 @@ def parse_args(argv: Sequence[str] | None = None) -> argparse.Namespace:
 def main(argv: Sequence[str] | None = None) -> None:
     args = parse_args(argv)
     hyperparameters = ModelHyperparameters.from_namespace(args)
-    output_path = hyperparams_path(args.result_subfolder).resolve()
+    output_path = hyperparams_path(args.artifact_path)
     write_hyperparameters(output_path, hyperparameters)
     print(f"Saved hyperparameters: {output_path}")
 

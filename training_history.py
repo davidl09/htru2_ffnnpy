@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import json
+import math
 from pathlib import Path
 from typing import Any
 
@@ -10,6 +11,18 @@ from ffnnpy.neural_net import TrainingResult
 DEFAULT_TRAINING_HISTORY_FILENAME = "training_history.json"
 
 
+def _metric_label(loss_name: str, positive_class_weight: float) -> str:
+    if (
+        loss_name == "cross_entropy"
+        and not math.isclose(positive_class_weight, 1.0, rel_tol=0.0, abs_tol=1e-12)
+    ):
+        return (
+            "Held-out weighted "
+            f"{str(loss_name).upper()} loss (positive_class_weight={positive_class_weight:.6g})"
+        )
+    return f"Held-out {str(loss_name).upper()} loss"
+
+
 def default_training_history_path(model_path: str | Path) -> Path:
     return Path(model_path).with_name(DEFAULT_TRAINING_HISTORY_FILENAME)
 
@@ -17,34 +30,33 @@ def default_training_history_path(model_path: str | Path) -> Path:
 def build_training_history_payload(
     result: TrainingResult,
     *,
-    batch_size: int | None = None,
     source: str = "recorded_during_training",
 ) -> dict[str, Any]:
     points: list[dict[str, Any]] = []
-    for step in result.milestone_steps:
+    for milestone in result.milestones:
         point: dict[str, Any] = {
-            "step": int(step),
-            "loss": float(result.losses[step]),
+            "milestone": int(milestone),
+            "loss": float(result.losses[milestone]),
         }
-        if batch_size is not None:
-            point["samples_seen"] = int(step * batch_size)
         points.append(point)
 
-    best_step = min(result.milestone_steps, key=lambda step: result.losses[step])
-    final_step = result.milestone_steps[-1]
+    best_milestone = min(result.milestones, key=lambda milestone: result.losses[milestone])
+    final_milestone = result.milestones[-1]
     loss_name = getattr(result.network.config.loss_func, "value", str(result.network.config.loss_func))
+    positive_class_weight = float(getattr(result.network.config, "positive_class_weight", 1.0))
 
     return {
         "source": source,
         "metric": "evaluation_loss",
-        "metric_label": f"Held-out {str(loss_name).upper()} loss",
-        "step_label": "Training updates",
+        "metric_label": _metric_label(str(loss_name), positive_class_weight),
+        "milestone_label": "Training samples seen",
         "loss_name": str(loss_name),
+        "positive_class_weight": positive_class_weight,
         "points": points,
-        "best_step": int(best_step),
-        "best_loss": float(result.losses[best_step]),
-        "final_step": int(final_step),
-        "final_loss": float(result.losses[final_step]),
+        "best_milestone": int(best_milestone),
+        "best_loss": float(result.losses[best_milestone]),
+        "final_milestone": int(final_milestone),
+        "final_loss": float(result.losses[final_milestone]),
     }
 
 
