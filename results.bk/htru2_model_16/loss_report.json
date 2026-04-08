@@ -1,0 +1,35 @@
+{
+  "model_path": "/Users/davidlaeer/Desktop/ENPH479/capstone/results/htru2_model_16/model.ffnnpy",
+  "dataset_path": "/Users/davidlaeer/Desktop/ENPH479/capstone/htru2/HTRU_2.arff",
+  "resolved_runtime": "numpy",
+  "feature_names": [
+    "Profile_mean",
+    "Profile_stdev",
+    "Profile_skewness",
+    "Profile_kurtosis",
+    "DM_mean",
+    "DM_stdev",
+    "DM_skewness",
+    "DM_kurtosis"
+  ],
+  "split": {
+    "train_fraction": 0.6,
+    "split_seed": 0,
+    "train_samples": 10740,
+    "test_samples": 7158
+  },
+  "metrics": {
+    "train": {
+      "loss": 0.010143464373558323,
+      "accuracy": 0.9899441340782122
+    },
+    "test": {
+      "loss": 0.019679983411975095,
+      "accuracy": 0.9769488683989941
+    },
+    "full": {
+      "loss": 0.013957432597772608,
+      "accuracy": 0.9847468990948709
+    }
+  }
+}

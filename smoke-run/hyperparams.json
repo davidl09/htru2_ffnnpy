@@ -1,0 +1,23 @@
+{
+  "train_fraction": 0.7,
+  "split_seed": 7,
+  "hidden_layer_shapes": [
+    4,
+    1
+  ],
+  "activation": [
+    "tanh",
+    "sigmoid"
+  ],
+  "loss_func": "x-entropy",
+  "positive_class_weight": 1.0,
+  "seed": 5,
+  "learning_rate": 0.02,
+  "milestones": [
+    1,
+    2
+  ],
+  "evaluation_points": 64,
+  "batch_size": 32,
+  "runtime": "numpy"
+}

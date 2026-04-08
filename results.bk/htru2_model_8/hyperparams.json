@@ -1,0 +1,17 @@
+{
+  "train_fraction": 0.6,
+  "split_seed": 0,
+  "hidden_layer_shapes": [
+    256,
+    1
+  ],
+  "activation": [
+    "sigmoid"
+  ],
+  "seed": 0,
+  "learning_rate": 0.1,
+  "max_power": 14,
+  "evaluation_points": 512,
+  "batch_size": 256,
+  "runtime": "numpy"
+}

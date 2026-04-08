@@ -1,0 +1,118 @@
+{
+  "source": "recorded_during_training",
+  "metric": "evaluation_loss",
+  "metric_label": "Held-out MSE loss",
+  "step_label": "Training updates",
+  "loss_name": "mse",
+  "points": [
+    {
+      "step": 1,
+      "loss": 0.06881135892177802,
+      "samples_seen": 256
+    },
+    {
+      "step": 2,
+      "loss": 0.06655486608161294,
+      "samples_seen": 512
+    },
+    {
+      "step": 4,
+      "loss": 0.06268598958291816,
+      "samples_seen": 1024
+    },
+    {
+      "step": 8,
+      "loss": 0.05542304139396505,
+      "samples_seen": 2048
+    },
+    {
+      "step": 16,
+      "loss": 0.04671710224336765,
+      "samples_seen": 4096
+    },
+    {
+      "step": 32,
+      "loss": 0.03957193587487603,
+      "samples_seen": 8192
+    },
+    {
+      "step": 64,
+      "loss": 0.03383283633046874,
+      "samples_seen": 16384
+    },
+    {
+      "step": 128,
+      "loss": 0.028080971536558006,
+      "samples_seen": 32768
+    },
+    {
+      "step": 256,
+      "loss": 0.02392432934922243,
+      "samples_seen": 65536
+    },
+    {
+      "step": 512,
+      "loss": 0.021112736486958432,
+      "samples_seen": 131072
+    },
+    {
+      "step": 1024,
+      "loss": 0.019646646760542112,
+      "samples_seen": 262144
+    },
+    {
+      "step": 2048,
+      "loss": 0.019528712995230298,
+      "samples_seen": 524288
+    },
+    {
+      "step": 4096,
+      "loss": 0.019003528399679722,
+      "samples_seen": 1048576
+    },
+    {
+      "step": 8192,
+      "loss": 0.01862634021356163,
+      "samples_seen": 2097152
+    },
+    {
+      "step": 16384,
+      "loss": 0.018689636440552094,
+      "samples_seen": 4194304
+    },
+    {
+      "step": 32768,
+      "loss": 0.0185411663666122,
+      "samples_seen": 8388608
+    },
+    {
+      "step": 65536,
+      "loss": 0.018663981397339352,
+      "samples_seen": 16777216
+    },
+    {
+      "step": 131072,
+      "loss": 0.018349641441953737,
+      "samples_seen": 33554432
+    },
+    {
+      "step": 262144,
+      "loss": 0.01814300649027533,
+      "samples_seen": 67108864
+    },
+    {
+      "step": 524288,
+      "loss": 0.018056140603724492,
+      "samples_seen": 134217728
+    },
+    {
+      "step": 1048576,
+      "loss": 0.019679983411975095,
+      "samples_seen": 268435456
+    }
+  ],
+  "best_step": 524288,
+  "best_loss": 0.018056140603724492,
+  "final_step": 1048576,
+  "final_loss": 0.019679983411975095
+}

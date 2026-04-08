@@ -1,0 +1,95 @@
+{
+  "selection_policy": "thresholds selected on train split only; test/full used only for reporting",
+  "default": {
+    "threshold": 0.5,
+    "train_metrics": {
+      "tp": 857,
+      "fp": 22,
+      "tn": 9734,
+      "fn": 127,
+      "accuracy": 0.9861266294227188,
+      "precision": 0.9749715585893061,
+      "recall": 0.8709349593495935
+    },
+    "test_metrics": {
+      "tp": 551,
+      "fp": 50,
+      "tn": 6453,
+      "fn": 104,
+      "accuracy": 0.9784856105057279,
+      "precision": 0.9168053244592346,
+      "recall": 0.8412213740458016
+    },
+    "full_metrics": {
+      "tp": 1408,
+      "fp": 72,
+      "tn": 16187,
+      "fn": 231,
+      "accuracy": 0.9830707341602414,
+      "precision": 0.9513513513513514,
+      "recall": 0.8590604026845637
+    }
+  },
+  "fn_focus": {
+    "threshold": 0.296,
+    "train_metrics": {
+      "tp": 888,
+      "fp": 58,
+      "tn": 9698,
+      "fn": 96,
+      "accuracy": 0.9856610800744879,
+      "precision": 0.9386892177589852,
+      "recall": 0.9024390243902439
+    },
+    "train_fbeta": 0.9094633346988938,
+    "test_metrics": {
+      "tp": 579,
+      "fp": 89,
+      "tn": 6414,
+      "fn": 76,
+      "accuracy": 0.9769488683989941,
+      "precision": 0.8667664670658682,
+      "recall": 0.8839694656488549
+    },
+    "full_metrics": {
+      "tp": 1467,
+      "fp": 147,
+      "tn": 16112,
+      "fn": 172,
+      "accuracy": 0.982176779528439,
+      "precision": 0.9089219330855018,
+      "recall": 0.8950579621720561
+    }
+  },
+  "fp_focus": {
+    "threshold": 0.646,
+    "train_metrics": {
+      "tp": 840,
+      "fp": 15,
+      "tn": 9741,
+      "fn": 144,
+      "accuracy": 0.985195530726257,
+      "precision": 0.9824561403508771,
+      "recall": 0.8536585365853658
+    },
+    "train_fbeta": 0.9536784741144414,
+    "test_metrics": {
+      "tp": 538,
+      "fp": 38,
+      "tn": 6465,
+      "fn": 117,
+      "accuracy": 0.9783459066778429,
+      "precision": 0.9340277777777778,
+      "recall": 0.8213740458015267
+    },
+    "full_metrics": {
+      "tp": 1378,
+      "fp": 53,
+      "tn": 16206,
+      "fn": 261,
+      "accuracy": 0.9824561403508771,
+      "precision": 0.9629629629629629,
+      "recall": 0.8407565588773642
+    }
+  }
+}

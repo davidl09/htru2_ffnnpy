@@ -1,0 +1,197 @@
+{
+  "dataset": {
+    "sample_count": 17898,
+    "positive_count": 1639,
+    "negative_count": 16259,
+    "prevalence": 0.09157447759526204,
+    "path": "/Users/davidlaeer/Desktop/ENPH479/capstone/htru2/HTRU_2.arff",
+    "feature_count": 8,
+    "feature_names": [
+      "Profile_mean",
+      "Profile_stdev",
+      "Profile_skewness",
+      "Profile_kurtosis",
+      "DM_mean",
+      "DM_stdev",
+      "DM_skewness",
+      "DM_kurtosis"
+    ]
+  },
+  "decision_rule": {
+    "threshold": 0.5,
+    "threshold_applied": true
+  },
+  "confusion_matrix": {
+    "true_positives": 1387,
+    "false_positives": 62,
+    "true_negatives": 16197,
+    "false_negatives": 252
+  },
+  "prediction_distribution": {
+    "predicted_positive_count": 1449,
+    "predicted_negative_count": 16449,
+    "predicted_positive_rate": 0.08095876634260811,
+    "predicted_negative_rate": 0.9190412336573919
+  },
+  "metrics": {
+    "accuracy": 0.9824561403508771,
+    "error_rate": 0.01754385964912286,
+    "precision": 0.9572118702553485,
+    "recall": 0.8462477120195241,
+    "true_positive_rate": 0.8462477120195241,
+    "true_negative_rate": 0.9961867273510056,
+    "specificity": 0.9961867273510056,
+    "false_positive_rate": 0.0038132726489944033,
+    "false_negative_rate": 0.1537522879804759,
+    "negative_predictive_value": 0.9846799197519606,
+    "false_discovery_rate": 0.04278812974465148,
+    "false_omission_rate": 0.015320080248039394,
+    "balanced_accuracy": 0.9212172196852648,
+    "f1_score": 0.8983160621761658,
+    "matthews_corrcoef": 0.8907761121979598
+  },
+  "output_summary": {
+    "min": 6.301532158935681e-10,
+    "max": 0.9999752682795338,
+    "mean": 0.08689021829049504,
+    "std": 0.2590873952129913
+  },
+  "model": {
+    "path": "results/htru2_model_21/model.ffnnpy",
+    "backend": "accelerated",
+    "format_version": 1,
+    "output_modifier_name": null,
+    "input_layer_dim": 8,
+    "hidden_layer_shapes": [
+      512,
+      1
+    ],
+    "layer_activation_funcs": [
+      "sigmoid",
+      "sigmoid"
+    ],
+    "resolved_runtime": "numpy",
+    "raw_outputs_used": true,
+    "saved_training_config": {
+      "learning_rate": 0.1,
+      "max_power": 18,
+      "evaluation_points": 512,
+      "seed": 0,
+      "batch_size": 256,
+      "runtime": "numpy"
+    }
+  },
+  "performance": {
+    "inference_seconds": 0.13086954108439386,
+    "samples_per_second": 136762.15146546677,
+    "microseconds_per_sample": 7.311964525890818
+  },
+  "training_history": {
+    "source": "recorded_during_training",
+    "metric": "evaluation_loss",
+    "metric_label": "Held-out MSE loss",
+    "step_label": "Training updates",
+    "loss_name": "mse",
+    "points": [
+      {
+        "step": 1,
+        "loss": 0.08904211941789623,
+        "samples_seen": 256
+      },
+      {
+        "step": 2,
+        "loss": 0.08892990418027322,
+        "samples_seen": 512
+      },
+      {
+        "step": 4,
+        "loss": 0.08833870324456639,
+        "samples_seen": 1024
+      },
+      {
+        "step": 8,
+        "loss": 0.08617461769448816,
+        "samples_seen": 2048
+      },
+      {
+        "step": 16,
+        "loss": 0.06059269921586766,
+        "samples_seen": 4096
+      },
+      {
+        "step": 32,
+        "loss": 0.03572869443497432,
+        "samples_seen": 8192
+      },
+      {
+        "step": 64,
+        "loss": 0.028733381596923242,
+        "samples_seen": 16384
+      },
+      {
+        "step": 128,
+        "loss": 0.02417852789230234,
+        "samples_seen": 32768
+      },
+      {
+        "step": 256,
+        "loss": 0.02182810827582935,
+        "samples_seen": 65536
+      },
+      {
+        "step": 512,
+        "loss": 0.020556576473665968,
+        "samples_seen": 131072
+      },
+      {
+        "step": 1024,
+        "loss": 0.019596163170817665,
+        "samples_seen": 262144
+      },
+      {
+        "step": 2048,
+        "loss": 0.019583355685221553,
+        "samples_seen": 524288
+      },
+      {
+        "step": 4096,
+        "loss": 0.01909471276108399,
+        "samples_seen": 1048576
+      },
+      {
+        "step": 8192,
+        "loss": 0.01863767746788504,
+        "samples_seen": 2097152
+      },
+      {
+        "step": 16384,
+        "loss": 0.018464886933687794,
+        "samples_seen": 4194304
+      },
+      {
+        "step": 32768,
+        "loss": 0.018287740407456076,
+        "samples_seen": 8388608
+      },
+      {
+        "step": 65536,
+        "loss": 0.018447749753410365,
+        "samples_seen": 16777216
+      },
+      {
+        "step": 131072,
+        "loss": 0.017784690767347035,
+        "samples_seen": 33554432
+      },
+      {
+        "step": 262144,
+        "loss": 0.017461988468619308,
+        "samples_seen": 67108864
+      }
+    ],
+    "best_step": 262144,
+    "best_loss": 0.017461988468619308,
+    "final_step": 262144,
+    "final_loss": 0.017461988468619308
+  }
+}

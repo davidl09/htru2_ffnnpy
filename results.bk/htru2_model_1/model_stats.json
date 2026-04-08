@@ -1,0 +1,95 @@
+{
+  "dataset": {
+    "sample_count": 17898,
+    "positive_count": 1639,
+    "negative_count": 16259,
+    "prevalence": 0.09157447759526204,
+    "path": "/Users/davidlaeer/Desktop/ENPH479/capstone/htru2/HTRU_2.arff",
+    "feature_count": 8,
+    "feature_names": [
+      "Profile_mean",
+      "Profile_stdev",
+      "Profile_skewness",
+      "Profile_kurtosis",
+      "DM_mean",
+      "DM_stdev",
+      "DM_skewness",
+      "DM_kurtosis"
+    ]
+  },
+  "decision_rule": {
+    "threshold": 0.5,
+    "threshold_applied": true
+  },
+  "confusion_matrix": {
+    "true_positives": 1399,
+    "false_positives": 112,
+    "true_negatives": 16147,
+    "false_negatives": 240
+  },
+  "prediction_distribution": {
+    "predicted_positive_count": 1511,
+    "predicted_negative_count": 16387,
+    "predicted_positive_rate": 0.08442284054084255,
+    "predicted_negative_rate": 0.9155771594591574
+  },
+  "metrics": {
+    "accuracy": 0.9803329981003464,
+    "error_rate": 0.019667001899653647,
+    "precision": 0.9258769027134348,
+    "recall": 0.8535692495424039,
+    "true_positive_rate": 0.8535692495424039,
+    "true_negative_rate": 0.9931115074727843,
+    "specificity": 0.9931115074727843,
+    "false_positive_rate": 0.006888492527215696,
+    "false_negative_rate": 0.1464307504575961,
+    "negative_predictive_value": 0.9853542442179777,
+    "false_discovery_rate": 0.07412309728656519,
+    "false_omission_rate": 0.014645755782022334,
+    "balanced_accuracy": 0.9233403785075941,
+    "f1_score": 0.8882539682539683,
+    "matthews_corrcoef": 0.8783631807513943
+  },
+  "output_summary": {
+    "min": 7.04515206451595e-05,
+    "max": 0.9999275161285549,
+    "mean": 0.08899716619879111,
+    "std": 0.2655741022469353
+  },
+  "model": {
+    "path": "results/htru2_model_1/model.ffnnpy",
+    "backend": "accelerated",
+    "format_version": 1,
+    "output_modifier_name": null,
+    "input_layer_dim": 8,
+    "hidden_layer_shapes": [
+      128,
+      64,
+      64,
+      32,
+      1
+    ],
+    "layer_activation_funcs": [
+      "sigmoid",
+      "sigmoid",
+      "sigmoid",
+      "sigmoid",
+      "sigmoid"
+    ],
+    "resolved_runtime": "numba",
+    "raw_outputs_used": true,
+    "saved_training_config": {
+      "learning_rate": 0.05,
+      "max_power": 18,
+      "evaluation_points": 512,
+      "seed": 21,
+      "batch_size": 256,
+      "runtime": "numba"
+    }
+  },
+  "performance": {
+    "inference_seconds": 0.2520227499771863,
+    "samples_per_second": 71017.39823734234,
+    "microseconds_per_sample": 14.081056541355812
+  }
+}

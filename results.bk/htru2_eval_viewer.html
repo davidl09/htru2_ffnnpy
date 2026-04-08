@@ -1,0 +1,1348 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>HTRU2 Evaluation Viewer</title>
+  <style>
+    :root {
+      --bg: #f4efe5;
+      --paper: rgba(255, 250, 242, 0.82);
+      --paper-strong: rgba(255, 251, 246, 0.96);
+      --ink: #172031;
+      --muted: #546074;
+      --line: rgba(23, 32, 49, 0.12);
+      --line-strong: rgba(23, 32, 49, 0.22);
+      --accent: #b84d2b;
+      --accent-soft: rgba(184, 77, 43, 0.12);
+      --accent-strong: #7f2a11;
+      --green: #1c6b4b;
+      --green-soft: rgba(28, 107, 75, 0.12);
+      --red: #9b2f2f;
+      --red-soft: rgba(155, 47, 47, 0.12);
+      --gold: #a77516;
+      --gold-soft: rgba(167, 117, 22, 0.12);
+      --shadow: 0 20px 60px rgba(30, 27, 22, 0.12);
+      --radius-xl: 28px;
+      --radius-lg: 20px;
+      --radius-md: 14px;
+      --radius-sm: 10px;
+    }
+
+    * {
+      box-sizing: border-box;
+    }
+
+    html,
+    body {
+      margin: 0;
+      min-height: 100%;
+      color: var(--ink);
+      background:
+        radial-gradient(circle at 20% 0%, rgba(184, 77, 43, 0.14), transparent 28%),
+        radial-gradient(circle at 82% 15%, rgba(28, 107, 75, 0.14), transparent 24%),
+        linear-gradient(180deg, #f7f1e7 0%, #efe5d6 100%);
+      font-family: "Avenir Next", "Trebuchet MS", "Segoe UI", sans-serif;
+    }
+
+    body::before {
+      content: "";
+      position: fixed;
+      inset: 0;
+      background-image:
+        linear-gradient(rgba(23, 32, 49, 0.03) 1px, transparent 1px),
+        linear-gradient(90deg, rgba(23, 32, 49, 0.03) 1px, transparent 1px);
+      background-size: 44px 44px;
+      mask-image: linear-gradient(180deg, rgba(0, 0, 0, 0.36), transparent 75%);
+      pointer-events: none;
+    }
+
+    button,
+    input,
+    select {
+      font: inherit;
+    }
+
+    .app-shell {
+      position: relative;
+      display: grid;
+      grid-template-columns: 350px minmax(0, 1fr);
+      gap: 22px;
+      padding: 24px;
+      min-height: 100vh;
+    }
+
+    .panel {
+      background: var(--paper);
+      border: 1px solid var(--line);
+      border-radius: var(--radius-xl);
+      box-shadow: var(--shadow);
+      backdrop-filter: blur(14px);
+    }
+
+    .sidebar {
+      display: flex;
+      flex-direction: column;
+      padding: 24px;
+      gap: 20px;
+      position: sticky;
+      top: 24px;
+      max-height: calc(100vh - 48px);
+      overflow: auto;
+    }
+
+    .eyebrow {
+      text-transform: uppercase;
+      letter-spacing: 0.16em;
+      font-size: 0.72rem;
+      color: var(--accent);
+      font-weight: 700;
+    }
+
+    h1,
+    h2,
+    h3 {
+      margin: 0;
+    }
+
+    .hero-title {
+      font-family: Georgia, "Iowan Old Style", serif;
+      font-size: clamp(2rem, 3vw, 3rem);
+      line-height: 0.95;
+      letter-spacing: -0.03em;
+      margin-top: 8px;
+      margin-bottom: 12px;
+    }
+
+    .sidebar p,
+    .lead,
+    .muted {
+      color: var(--muted);
+      line-height: 1.55;
+    }
+
+    .control-row {
+      display: flex;
+      flex-wrap: wrap;
+      gap: 12px;
+    }
+
+    .button {
+      appearance: none;
+      border: 1px solid transparent;
+      border-radius: 999px;
+      padding: 0.82rem 1.15rem;
+      cursor: pointer;
+      transition: transform 140ms ease, box-shadow 140ms ease, border-color 140ms ease, background 140ms ease;
+      font-weight: 700;
+      letter-spacing: 0.01em;
+    }
+
+    .button:hover {
+      transform: translateY(-1px);
+      box-shadow: 0 16px 28px rgba(23, 32, 49, 0.12);
+    }
+
+    .button.primary {
+      background: linear-gradient(135deg, #b84d2b, #d97745);
+      color: white;
+    }
+
+    .button.secondary {
+      background: rgba(255, 255, 255, 0.7);
+      color: var(--ink);
+      border-color: var(--line);
+    }
+
+    .drop-zone {
+      border: 1.5px dashed rgba(184, 77, 43, 0.28);
+      background: linear-gradient(180deg, rgba(255, 255, 255, 0.48), rgba(255, 255, 255, 0.2));
+      border-radius: var(--radius-lg);
+      padding: 18px;
+      transition: border-color 140ms ease, background 140ms ease, transform 140ms ease;
+    }
+
+    .drop-zone.active {
+      border-color: var(--accent);
+      background: rgba(184, 77, 43, 0.1);
+      transform: scale(1.01);
+    }
+
+    .chip-row {
+      display: flex;
+      flex-wrap: wrap;
+      gap: 8px;
+    }
+
+    .chip {
+      display: inline-flex;
+      align-items: center;
+      gap: 8px;
+      border-radius: 999px;
+      border: 1px solid var(--line);
+      background: rgba(255, 255, 255, 0.62);
+      padding: 0.45rem 0.78rem;
+      font-size: 0.84rem;
+      color: var(--ink);
+    }
+
+    .report-list {
+      display: flex;
+      flex-direction: column;
+      gap: 10px;
+    }
+
+    .report-item {
+      display: grid;
+      gap: 8px;
+      width: 100%;
+      border-radius: 18px;
+      padding: 14px 14px 12px;
+      border: 1px solid transparent;
+      background: rgba(255, 255, 255, 0.54);
+      cursor: pointer;
+      text-align: left;
+      transition: border-color 140ms ease, transform 140ms ease, background 140ms ease;
+    }
+
+    .report-item:hover {
+      transform: translateY(-1px);
+      border-color: rgba(184, 77, 43, 0.3);
+    }
+
+    .report-item.active {
+      border-color: rgba(184, 77, 43, 0.56);
+      background: linear-gradient(180deg, rgba(184, 77, 43, 0.12), rgba(255, 255, 255, 0.82));
+    }
+
+    .report-item-title {
+      font-weight: 800;
+      font-size: 0.98rem;
+      line-height: 1.25;
+    }
+
+    .report-item-meta {
+      display: flex;
+      flex-wrap: wrap;
+      gap: 8px;
+      font-size: 0.78rem;
+      color: var(--muted);
+    }
+
+    .report-pill {
+      border-radius: 999px;
+      padding: 0.24rem 0.55rem;
+      background: rgba(23, 32, 49, 0.06);
+      color: var(--ink);
+      font-weight: 700;
+    }
+
+    .status-box {
+      border-radius: var(--radius-lg);
+      padding: 14px 16px;
+      background: rgba(23, 32, 49, 0.05);
+      border: 1px solid var(--line);
+    }
+
+    .main {
+      display: flex;
+      flex-direction: column;
+      gap: 20px;
+      min-width: 0;
+    }
+
+    .main-header {
+      padding: 30px 32px 28px;
+      overflow: hidden;
+      position: relative;
+      background:
+        radial-gradient(circle at 88% 22%, rgba(184, 77, 43, 0.16), transparent 22%),
+        radial-gradient(circle at 12% 14%, rgba(28, 107, 75, 0.12), transparent 26%),
+        linear-gradient(135deg, rgba(255, 255, 255, 0.85), rgba(255, 247, 240, 0.92));
+    }
+
+    .main-header::after {
+      content: "";
+      position: absolute;
+      width: 280px;
+      height: 280px;
+      right: -70px;
+      top: -120px;
+      border-radius: 50%;
+      border: 1px solid rgba(184, 77, 43, 0.16);
+    }
+
+    .headline {
+      display: flex;
+      justify-content: space-between;
+      align-items: flex-start;
+      gap: 24px;
+      flex-wrap: wrap;
+    }
+
+    .headline-title {
+      font-family: Georgia, "Iowan Old Style", serif;
+      font-size: clamp(1.8rem, 2.5vw, 2.6rem);
+      letter-spacing: -0.03em;
+      line-height: 1.02;
+    }
+
+    .path-badge {
+      max-width: 100%;
+      display: inline-flex;
+      align-items: center;
+      gap: 8px;
+      border: 1px solid var(--line);
+      background: rgba(255, 255, 255, 0.7);
+      border-radius: 999px;
+      padding: 0.55rem 0.85rem;
+      color: var(--muted);
+      font-size: 0.86rem;
+      overflow-wrap: anywhere;
+    }
+
+    .section-grid {
+      display: grid;
+      gap: 20px;
+    }
+
+    .metric-grid {
+      display: grid;
+      grid-template-columns: repeat(4, minmax(0, 1fr));
+      gap: 14px;
+    }
+
+    .metric-card {
+      border-radius: var(--radius-lg);
+      border: 1px solid var(--line);
+      background: var(--paper-strong);
+      padding: 18px 18px 16px;
+      display: grid;
+      gap: 8px;
+      min-height: 124px;
+      animation: rise-in 320ms ease;
+    }
+
+    .metric-label {
+      font-size: 0.78rem;
+      text-transform: uppercase;
+      letter-spacing: 0.14em;
+      color: var(--muted);
+      font-weight: 700;
+    }
+
+    .metric-value {
+      font-size: clamp(1.35rem, 2vw, 2rem);
+      font-weight: 800;
+      letter-spacing: -0.04em;
+    }
+
+    .metric-subtext {
+      color: var(--muted);
+      font-size: 0.88rem;
+      line-height: 1.45;
+    }
+
+    .layout-two {
+      display: grid;
+      grid-template-columns: minmax(320px, 0.95fr) minmax(320px, 1.05fr);
+      gap: 20px;
+    }
+
+    .section-card {
+      padding: 22px;
+      background: var(--paper);
+      border: 1px solid var(--line);
+      border-radius: var(--radius-xl);
+      box-shadow: var(--shadow);
+    }
+
+    .chart-summary {
+      display: flex;
+      flex-wrap: wrap;
+      gap: 10px;
+      margin-bottom: 16px;
+    }
+
+    .chart-note {
+      margin-top: 12px;
+      color: var(--muted);
+      font-size: 0.88rem;
+      line-height: 1.5;
+    }
+
+    .chart-shell {
+      display: grid;
+      gap: 14px;
+    }
+
+    .chart-frame {
+      border-radius: 22px;
+      border: 1px solid var(--line);
+      background:
+        linear-gradient(180deg, rgba(255, 255, 255, 0.88), rgba(255, 250, 244, 0.76));
+      padding: 12px;
+      overflow: hidden;
+    }
+
+    .loss-chart {
+      width: 100%;
+      height: auto;
+      display: block;
+    }
+
+    .chart-empty {
+      border-radius: 18px;
+      border: 1px dashed rgba(184, 77, 43, 0.28);
+      background: rgba(255, 255, 255, 0.55);
+      padding: 18px;
+      color: var(--muted);
+      line-height: 1.6;
+    }
+
+    .chart-stroke {
+      fill: none;
+      stroke: var(--accent);
+      stroke-width: 3;
+      stroke-linejoin: round;
+      stroke-linecap: round;
+    }
+
+    .chart-grid-line {
+      stroke: rgba(23, 32, 49, 0.09);
+      stroke-width: 1;
+    }
+
+    .chart-axis {
+      stroke: rgba(23, 32, 49, 0.28);
+      stroke-width: 1.4;
+    }
+
+    .chart-point {
+      fill: white;
+      stroke: var(--accent);
+      stroke-width: 2;
+    }
+
+    .chart-point.best {
+      fill: var(--green);
+      stroke: white;
+      stroke-width: 2.5;
+    }
+
+    .chart-label {
+      fill: var(--muted);
+      font-size: 12px;
+      font-family: "Avenir Next", "Trebuchet MS", "Segoe UI", sans-serif;
+    }
+
+    .section-heading {
+      display: flex;
+      justify-content: space-between;
+      align-items: baseline;
+      gap: 12px;
+      margin-bottom: 16px;
+    }
+
+    .section-heading h2 {
+      font-size: 1.16rem;
+      letter-spacing: -0.02em;
+    }
+
+    .matrix {
+      display: grid;
+      grid-template-columns: repeat(2, minmax(0, 1fr));
+      gap: 12px;
+    }
+
+    .matrix-card {
+      border-radius: 18px;
+      padding: 16px;
+      border: 1px solid var(--line);
+      display: grid;
+      gap: 6px;
+    }
+
+    .matrix-card.positive {
+      background: var(--green-soft);
+    }
+
+    .matrix-card.alert {
+      background: var(--red-soft);
+    }
+
+    .matrix-card.neutral {
+      background: rgba(23, 32, 49, 0.05);
+    }
+
+    .matrix-card.warning {
+      background: var(--gold-soft);
+    }
+
+    .matrix-label {
+      font-size: 0.8rem;
+      text-transform: uppercase;
+      letter-spacing: 0.12em;
+      color: var(--muted);
+      font-weight: 700;
+    }
+
+    .matrix-value {
+      font-size: 2rem;
+      font-weight: 800;
+      letter-spacing: -0.04em;
+    }
+
+    .detail-table {
+      width: 100%;
+      border-collapse: collapse;
+    }
+
+    .detail-table th,
+    .detail-table td {
+      padding: 10px 0;
+      text-align: left;
+      vertical-align: top;
+      border-bottom: 1px solid var(--line);
+    }
+
+    .detail-table th {
+      width: 38%;
+      color: var(--muted);
+      font-weight: 700;
+      padding-right: 16px;
+    }
+
+    .detail-table tr:last-child th,
+    .detail-table tr:last-child td {
+      border-bottom: 0;
+    }
+
+    .data-tree {
+      display: grid;
+      gap: 12px;
+    }
+
+    details.tree-node {
+      border: 1px solid var(--line);
+      border-radius: 16px;
+      background: rgba(255, 255, 255, 0.62);
+      padding: 10px 12px;
+    }
+
+    details.tree-node > summary {
+      cursor: pointer;
+      list-style: none;
+      font-weight: 700;
+      display: flex;
+      align-items: center;
+      gap: 8px;
+    }
+
+    details.tree-node > summary::-webkit-details-marker {
+      display: none;
+    }
+
+    .tree-content {
+      padding-top: 10px;
+      display: grid;
+      gap: 10px;
+    }
+
+    .leaf {
+      display: grid;
+      gap: 4px;
+      border-radius: 12px;
+      padding: 10px 12px;
+      background: rgba(23, 32, 49, 0.04);
+    }
+
+    .leaf-key {
+      color: var(--muted);
+      font-size: 0.82rem;
+      text-transform: uppercase;
+      letter-spacing: 0.1em;
+      font-weight: 700;
+    }
+
+    .leaf-value {
+      font-family: "SFMono-Regular", Menlo, Consolas, monospace;
+      line-height: 1.55;
+      overflow-wrap: anywhere;
+    }
+
+    .empty-state {
+      display: grid;
+      place-items: center;
+      min-height: 56vh;
+      padding: 30px;
+      text-align: center;
+      color: var(--muted);
+    }
+
+    .empty-card {
+      max-width: 720px;
+      background: rgba(255, 255, 255, 0.7);
+      border-radius: 30px;
+      border: 1px solid var(--line);
+      padding: 34px 30px;
+      box-shadow: var(--shadow);
+    }
+
+    .empty-card h2 {
+      font-family: Georgia, "Iowan Old Style", serif;
+      font-size: clamp(1.8rem, 2.4vw, 2.6rem);
+      letter-spacing: -0.03em;
+      margin-bottom: 12px;
+      color: var(--ink);
+    }
+
+    .sr-only {
+      position: absolute;
+      width: 1px;
+      height: 1px;
+      padding: 0;
+      margin: -1px;
+      overflow: hidden;
+      clip: rect(0, 0, 0, 0);
+      white-space: nowrap;
+      border: 0;
+    }
+
+    @keyframes rise-in {
+      from {
+        opacity: 0;
+        transform: translateY(10px);
+      }
+      to {
+        opacity: 1;
+        transform: translateY(0);
+      }
+    }
+
+    @media (max-width: 1180px) {
+      .app-shell {
+        grid-template-columns: 1fr;
+      }
+
+      .sidebar {
+        position: static;
+        max-height: none;
+      }
+
+      .metric-grid {
+        grid-template-columns: repeat(2, minmax(0, 1fr));
+      }
+
+      .layout-two {
+        grid-template-columns: 1fr;
+      }
+    }
+
+    @media (max-width: 720px) {
+      .app-shell {
+        padding: 14px;
+        gap: 14px;
+      }
+
+      .sidebar,
+      .main-header,
+      .section-card {
+        padding: 18px;
+      }
+
+      .metric-grid,
+      .matrix {
+        grid-template-columns: 1fr;
+      }
+
+      .detail-table th,
+      .detail-table td {
+        display: block;
+        width: 100%;
+      }
+
+      .detail-table th {
+        padding-bottom: 4px;
+      }
+
+      .detail-table td {
+        padding-top: 0;
+      }
+    }
+  </style>
+</head>
+<body>
+  <div class="app-shell">
+    <aside class="sidebar panel">
+      <div>
+        <div class="eyebrow">HTRU2 Saved Model Reports</div>
+        <h1 class="hero-title">Evaluation<br />Atlas</h1>
+        <p class="lead">
+          Load one or more JSON evaluation reports from <code>experiments/htru2_saved_model_stats.py</code>
+          and inspect every metric, confusion count, runtime detail, and raw field in one place.
+        </p>
+      </div>
+
+      <div class="control-row">
+        <button class="button primary" id="pickFilesButton" type="button">Choose JSON Files</button>
+        <button class="button secondary" id="pickFolderButton" type="button">Choose Folder</button>
+      </div>
+
+      <label class="drop-zone" id="dropZone">
+        <input class="sr-only" id="fileInput" type="file" accept=".json,application/json" multiple />
+        <input class="sr-only" id="folderInput" type="file" accept=".json,application/json" webkitdirectory directory multiple />
+        <strong>Drop reports here</strong>
+        <p class="muted">
+          Because this is a local HTML file, the browser cannot scan your disk on its own.
+          Pick files or a folder from <code>results/</code>, or drag evaluation JSON files into this panel.
+        </p>
+      </label>
+
+      <div class="status-box">
+        <div class="chip-row">
+          <span class="chip" id="loadedCountChip">0 reports loaded</span>
+          <span class="chip" id="skippedCountChip">0 skipped</span>
+        </div>
+      </div>
+
+      <section>
+        <div class="section-heading">
+          <h2>Reports</h2>
+          <span class="muted" id="selectedHint">Choose a file to begin</span>
+        </div>
+        <div class="report-list" id="reportList"></div>
+      </section>
+
+      <section>
+        <div class="section-heading">
+          <h2>Skipped Files</h2>
+          <span class="muted">Non-evaluation JSON</span>
+        </div>
+        <div class="report-list" id="skippedList"></div>
+      </section>
+    </aside>
+
+    <main class="main">
+      <section class="main-header panel" id="mainContent">
+        <div class="empty-state">
+          <div class="empty-card">
+            <div class="eyebrow">Viewer Ready</div>
+            <h2>Load evaluation JSON files from <code>results/</code></h2>
+            <p class="muted">
+              The viewer accepts reports produced by <code>experiments/htru2_saved_model_stats.py</code>.
+              Once loaded, it will show key performance cards, a confusion matrix, model and dataset metadata,
+              runtime details, and a complete expandable view of the raw JSON.
+            </p>
+          </div>
+        </div>
+      </section>
+    </main>
+  </div>
+
+  <script>
+    const state = {
+      reports: [],
+      skipped: [],
+      selectedId: null,
+    };
+
+    const fileInput = document.getElementById("fileInput");
+    const folderInput = document.getElementById("folderInput");
+    const pickFilesButton = document.getElementById("pickFilesButton");
+    const pickFolderButton = document.getElementById("pickFolderButton");
+    const dropZone = document.getElementById("dropZone");
+    const reportList = document.getElementById("reportList");
+    const skippedList = document.getElementById("skippedList");
+    const mainContent = document.getElementById("mainContent");
+    const loadedCountChip = document.getElementById("loadedCountChip");
+    const skippedCountChip = document.getElementById("skippedCountChip");
+    const selectedHint = document.getElementById("selectedHint");
+
+    pickFilesButton.addEventListener("click", () => fileInput.click());
+    pickFolderButton.addEventListener("click", () => folderInput.click());
+    fileInput.addEventListener("change", (event) => loadFiles(event.target.files));
+    folderInput.addEventListener("change", (event) => loadFiles(event.target.files));
+
+    ["dragenter", "dragover"].forEach((eventName) => {
+      dropZone.addEventListener(eventName, (event) => {
+        event.preventDefault();
+        dropZone.classList.add("active");
+      });
+    });
+
+    ["dragleave", "drop"].forEach((eventName) => {
+      dropZone.addEventListener(eventName, (event) => {
+        event.preventDefault();
+        dropZone.classList.remove("active");
+      });
+    });
+
+    dropZone.addEventListener("drop", (event) => {
+      loadFiles(event.dataTransfer.files);
+    });
+
+    function isEvaluationPayload(payload) {
+      return Boolean(
+        payload &&
+        typeof payload === "object" &&
+        payload.metrics &&
+        payload.confusion_matrix &&
+        payload.dataset &&
+        payload.model
+      );
+    }
+
+    function basename(pathText) {
+      if (!pathText) return "";
+      return String(pathText).split(/[\\/]/).filter(Boolean).pop() || String(pathText);
+    }
+
+    function formatNumber(value, digits = 4) {
+      if (value === null || value === undefined || Number.isNaN(value)) return "n/a";
+      const number = Number(value);
+      if (!Number.isFinite(number)) return String(value);
+      return number.toLocaleString(undefined, {
+        minimumFractionDigits: 0,
+        maximumFractionDigits: digits,
+      });
+    }
+
+    function formatPercent(value, digits = 3) {
+      if (value === null || value === undefined || Number.isNaN(value)) return "n/a";
+      return `${(Number(value) * 100).toFixed(digits)}%`;
+    }
+
+    function formatTimeSeconds(value) {
+      if (value === null || value === undefined || Number.isNaN(value)) return "n/a";
+      const seconds = Number(value);
+      if (seconds < 0.001) return `${(seconds * 1_000_000).toFixed(1)} us`;
+      if (seconds < 1) return `${(seconds * 1000).toFixed(2)} ms`;
+      return `${seconds.toFixed(3)} s`;
+    }
+
+    function formatSmartValue(key, value) {
+      if (value === null || value === undefined) return "n/a";
+      if (typeof value === "boolean") return value ? "true" : "false";
+      if (typeof value === "number") {
+        const percentKeys = new Set([
+          "accuracy",
+          "error_rate",
+          "precision",
+          "recall",
+          "true_positive_rate",
+          "true_negative_rate",
+          "specificity",
+          "false_positive_rate",
+          "false_negative_rate",
+          "negative_predictive_value",
+          "false_discovery_rate",
+          "false_omission_rate",
+          "balanced_accuracy",
+          "prevalence",
+          "predicted_positive_rate",
+          "predicted_negative_rate",
+        ]);
+
+        if (percentKeys.has(key)) {
+          return `${formatPercent(value)} (${formatNumber(value, 6)})`;
+        }
+        if (key === "samples_per_second") return `${formatNumber(value, 2)} /s`;
+        if (key === "microseconds_per_sample") return `${formatNumber(value, 3)} us`;
+        if (key === "inference_seconds") return formatTimeSeconds(value);
+        return formatNumber(value, 6);
+      }
+      if (Array.isArray(value)) return value.join(", ");
+      if (typeof value === "object") return JSON.stringify(value);
+      return String(value);
+    }
+
+    function titleize(key) {
+      return String(key)
+        .replace(/_/g, " ")
+        .replace(/\b\w/g, (match) => match.toUpperCase());
+    }
+
+    function uniqueValues(values) {
+      return Array.from(new Set(values));
+    }
+
+    function escapeHtml(text) {
+      return String(text)
+        .replaceAll("&", "&amp;")
+        .replaceAll("<", "&lt;")
+        .replaceAll(">", "&gt;")
+        .replaceAll('"', "&quot;")
+        .replaceAll("'", "&#39;");
+    }
+
+    function normalizeReport(sourcePath, payload) {
+      const modelPath = payload.model && payload.model.path ? payload.model.path : sourcePath;
+      const labelRoot = basename(modelPath) || basename(sourcePath) || "Evaluation report";
+      const accuracy = payload.metrics ? payload.metrics.accuracy : null;
+      return {
+        id: `${sourcePath}::${labelRoot}`,
+        sourcePath,
+        label: labelRoot,
+        subtitle: sourcePath,
+        payload,
+        accuracy,
+      };
+    }
+
+    async function loadFiles(fileList) {
+      if (!fileList || fileList.length === 0) return;
+
+      const files = Array.from(fileList).filter((file) => file.name.toLowerCase().endsWith(".json"));
+      const nextReports = [];
+      const nextSkipped = [];
+
+      for (const file of files) {
+        const sourcePath = file.webkitRelativePath || file.name;
+        try {
+          const payload = JSON.parse(await file.text());
+          if (isEvaluationPayload(payload)) {
+            nextReports.push(normalizeReport(sourcePath, payload));
+          } else {
+            nextSkipped.push({
+              name: sourcePath,
+              reason: "JSON loaded, but it does not match the evaluation report schema.",
+            });
+          }
+        } catch (error) {
+          nextSkipped.push({
+            name: sourcePath,
+            reason: `Could not parse JSON: ${error.message}`,
+          });
+        }
+      }
+
+      const reportMap = new Map(state.reports.map((report) => [report.sourcePath, report]));
+      nextReports.forEach((report) => reportMap.set(report.sourcePath, report));
+      state.reports = Array.from(reportMap.values()).sort((left, right) => {
+        const leftAccuracy = left.accuracy ?? -1;
+        const rightAccuracy = right.accuracy ?? -1;
+        if (rightAccuracy !== leftAccuracy) return rightAccuracy - leftAccuracy;
+        return left.label.localeCompare(right.label);
+      });
+
+      const skippedMap = new Map(state.skipped.map((entry) => [entry.name, entry]));
+      nextSkipped.forEach((entry) => skippedMap.set(entry.name, entry));
+      state.skipped = Array.from(skippedMap.values()).sort((left, right) => left.name.localeCompare(right.name));
+
+      if (!state.selectedId && state.reports.length > 0) {
+        state.selectedId = state.reports[0].id;
+      } else if (state.selectedId && !state.reports.some((report) => report.id === state.selectedId)) {
+        state.selectedId = state.reports[0] ? state.reports[0].id : null;
+      }
+
+      fileInput.value = "";
+      folderInput.value = "";
+      render();
+    }
+
+    function renderReportList() {
+      if (state.reports.length === 0) {
+        reportList.innerHTML = '<div class="status-box muted">No evaluation reports loaded yet.</div>';
+      } else {
+        reportList.innerHTML = state.reports.map((report) => {
+          const accuracyText = report.accuracy === null || report.accuracy === undefined
+            ? "Accuracy n/a"
+            : `Accuracy ${formatPercent(report.accuracy)}`;
+          return `
+            <button class="report-item ${report.id === state.selectedId ? "active" : ""}" data-report-id="${escapeHtml(report.id)}" type="button">
+              <div class="report-item-title">${escapeHtml(report.label)}</div>
+              <div class="report-item-meta">
+                <span class="report-pill">${escapeHtml(accuracyText)}</span>
+                <span>${escapeHtml(report.payload.model.backend || "unknown backend")}</span>
+              </div>
+              <div class="muted">${escapeHtml(report.sourcePath)}</div>
+            </button>
+          `;
+        }).join("");
+
+        reportList.querySelectorAll("[data-report-id]").forEach((button) => {
+          button.addEventListener("click", () => {
+            state.selectedId = button.dataset.reportId;
+            render();
+          });
+        });
+      }
+
+      if (state.skipped.length === 0) {
+        skippedList.innerHTML = '<div class="status-box muted">No skipped files.</div>';
+      } else {
+        skippedList.innerHTML = state.skipped.map((entry) => `
+          <div class="status-box">
+            <strong>${escapeHtml(entry.name)}</strong>
+            <div class="muted">${escapeHtml(entry.reason)}</div>
+          </div>
+        `).join("");
+      }
+
+      loadedCountChip.textContent = `${state.reports.length} report${state.reports.length === 1 ? "" : "s"} loaded`;
+      skippedCountChip.textContent = `${state.skipped.length} skipped`;
+      selectedHint.textContent = state.reports.length === 0
+        ? "Choose a file to begin"
+        : `${state.reports.find((report) => report.id === state.selectedId)?.label || "Report"} selected`;
+    }
+
+    function createMetricCard(label, value, subtext = "") {
+      return `
+        <article class="metric-card">
+          <div class="metric-label">${escapeHtml(label)}</div>
+          <div class="metric-value">${escapeHtml(value)}</div>
+          <div class="metric-subtext">${escapeHtml(subtext)}</div>
+        </article>
+      `;
+    }
+
+    function createTableRows(entries) {
+      return entries.map(([key, value]) => `
+        <tr>
+          <th>${escapeHtml(titleize(key))}</th>
+          <td>${escapeHtml(formatSmartValue(key, value))}</td>
+        </tr>
+      `).join("");
+    }
+
+    function createChip(label, value) {
+      return `
+        <span class="chip">
+          <strong>${escapeHtml(label)}:</strong> ${escapeHtml(value)}
+        </span>
+      `;
+    }
+
+    function createLossChart(trainingHistory) {
+      const points = Array.isArray(trainingHistory && trainingHistory.points)
+        ? trainingHistory.points.filter((point) => Number.isFinite(Number(point.step)) && Number.isFinite(Number(point.loss)))
+        : [];
+      if (points.length === 0) {
+        return `
+          <div class="chart-empty">
+            This report does not include training loss history. Re-run <code>train_model.py</code> for new models,
+            or regenerate the stats JSON for a result folder that still has <code>hyperparams.json</code>.
+          </div>
+        `;
+      }
+
+      const chartWidth = 760;
+      const chartHeight = 280;
+      const padding = { top: 18, right: 18, bottom: 42, left: 58 };
+      const steps = points.map((point) => Number(point.step));
+      const losses = points.map((point) => Number(point.loss));
+      const minLoss = Math.min(...losses);
+      const maxLoss = Math.max(...losses);
+      const lossSpan = maxLoss - minLoss || Math.max(Math.abs(maxLoss) * 0.1, 1e-6);
+      const minStepLog = Math.log2(Math.max(steps[0], 1));
+      const maxStepLog = Math.log2(Math.max(steps[steps.length - 1], 1));
+      const stepSpan = Math.max(maxStepLog - minStepLog, 1);
+      const plotWidth = chartWidth - padding.left - padding.right;
+      const plotHeight = chartHeight - padding.top - padding.bottom;
+      const bestStep = Number(trainingHistory.best_step);
+
+      const xForStep = (step) => {
+        const ratio = (Math.log2(Math.max(step, 1)) - minStepLog) / stepSpan;
+        return padding.left + ratio * plotWidth;
+      };
+      const yForLoss = (loss) => {
+        const ratio = (loss - minLoss) / lossSpan;
+        return padding.top + (1 - ratio) * plotHeight;
+      };
+
+      const polyline = points
+        .map((point) => `${xForStep(Number(point.step)).toFixed(2)},${yForLoss(Number(point.loss)).toFixed(2)}`)
+        .join(" ");
+
+      const yTickValues = Array.from({ length: 4 }, (_, index) => minLoss + ((lossSpan * index) / 3));
+      const xTickSteps = uniqueValues([
+        steps[0],
+        steps[Math.floor((steps.length - 1) / 3)],
+        steps[Math.floor((2 * (steps.length - 1)) / 3)],
+        steps[steps.length - 1],
+      ]);
+
+      const gridLines = yTickValues.map((value) => {
+        const y = yForLoss(value);
+        return `
+          <g>
+            <line class="chart-grid-line" x1="${padding.left}" y1="${y}" x2="${chartWidth - padding.right}" y2="${y}" />
+            <text class="chart-label" x="${padding.left - 10}" y="${y + 4}" text-anchor="end">${escapeHtml(formatNumber(value, 6))}</text>
+          </g>
+        `;
+      }).join("");
+
+      const xTicks = xTickSteps.map((step) => {
+        const x = xForStep(step);
+        return `
+          <g>
+            <line class="chart-grid-line" x1="${x}" y1="${padding.top}" x2="${x}" y2="${chartHeight - padding.bottom}" />
+            <text class="chart-label" x="${x}" y="${chartHeight - 14}" text-anchor="middle">${escapeHtml(formatNumber(step, 0))}</text>
+          </g>
+        `;
+      }).join("");
+
+      const markers = points.map((point) => {
+        const step = Number(point.step);
+        const loss = Number(point.loss);
+        const cx = xForStep(step);
+        const cy = yForLoss(loss);
+        const pointClass = step === bestStep ? "chart-point best" : "chart-point";
+        return `
+          <circle class="${pointClass}" cx="${cx}" cy="${cy}" r="${step === bestStep ? 5 : 3.5}">
+            <title>Update ${step}: loss ${formatNumber(loss, 6)}</title>
+          </circle>
+        `;
+      }).join("");
+
+      const summary = [
+        createChip("Best loss", `${formatNumber(trainingHistory.best_loss, 6)} at ${formatNumber(trainingHistory.best_step, 0)} updates`),
+        createChip("Final loss", `${formatNumber(trainingHistory.final_loss, 6)} at ${formatNumber(trainingHistory.final_step, 0)} updates`),
+        trainingHistory.source ? createChip("History source", titleize(trainingHistory.source)) : "",
+      ].join("");
+
+      const noteParts = [];
+      if (trainingHistory.hyperparams_path) {
+        noteParts.push(`Replayed from ${trainingHistory.hyperparams_path}.`);
+      }
+      if (trainingHistory.verification && Number.isFinite(Number(trainingHistory.verification.loss_delta_vs_saved_model))) {
+        noteParts.push(`Replay delta vs saved model final hold-out loss: ${formatNumber(trainingHistory.verification.loss_delta_vs_saved_model, 12)}.`);
+      }
+
+      return `
+        <div class="chart-shell">
+          <div class="chart-summary">${summary}</div>
+          <div class="chart-frame">
+            <svg class="loss-chart" viewBox="0 0 ${chartWidth} ${chartHeight}" role="img" aria-label="Training loss history">
+              ${gridLines}
+              ${xTicks}
+              <line class="chart-axis" x1="${padding.left}" y1="${padding.top}" x2="${padding.left}" y2="${chartHeight - padding.bottom}" />
+              <line class="chart-axis" x1="${padding.left}" y1="${chartHeight - padding.bottom}" x2="${chartWidth - padding.right}" y2="${chartHeight - padding.bottom}" />
+              <polyline class="chart-stroke" points="${polyline}" />
+              ${markers}
+              <text class="chart-label" x="${chartWidth / 2}" y="${chartHeight - 4}" text-anchor="middle">${escapeHtml(trainingHistory.step_label || "Training updates")}</text>
+              <text class="chart-label" x="18" y="${chartHeight / 2}" text-anchor="middle" transform="rotate(-90 18 ${chartHeight / 2})">${escapeHtml(trainingHistory.metric_label || "Loss")}</text>
+            </svg>
+          </div>
+          ${noteParts.length > 0 ? `<div class="chart-note">${escapeHtml(noteParts.join(" "))}</div>` : ""}
+        </div>
+      `;
+    }
+
+    function renderValueNode(key, value) {
+      if (value === null || value === undefined || typeof value !== "object") {
+        return `
+          <div class="leaf">
+            <div class="leaf-key">${escapeHtml(titleize(key))}</div>
+            <div class="leaf-value">${escapeHtml(formatSmartValue(key, value))}</div>
+          </div>
+        `;
+      }
+
+      if (Array.isArray(value)) {
+        const arrayChildren = value.map((item, index) => renderValueNode(`${key}[${index}]`, item)).join("");
+        return `
+          <details class="tree-node" open>
+            <summary>${escapeHtml(titleize(key))} <span class="muted">Array(${value.length})</span></summary>
+            <div class="tree-content">${arrayChildren || '<div class="muted">Empty array</div>'}</div>
+          </details>
+        `;
+      }
+
+      const objectChildren = Object.entries(value).map(([childKey, childValue]) => renderValueNode(childKey, childValue)).join("");
+      return `
+        <details class="tree-node" open>
+          <summary>${escapeHtml(titleize(key))}</summary>
+          <div class="tree-content">${objectChildren || '<div class="muted">Empty object</div>'}</div>
+        </details>
+      `;
+    }
+
+    function renderSelectedReport() {
+      const report = state.reports.find((entry) => entry.id === state.selectedId);
+      if (!report) {
+        mainContent.innerHTML = `
+          <div class="empty-state">
+            <div class="empty-card">
+              <h2>No evaluation report selected</h2>
+              <p class="muted">Load one or more evaluation JSON files to view them here.</p>
+            </div>
+          </div>
+        `;
+        return;
+      }
+
+      const payload = report.payload;
+      const metrics = payload.metrics || {};
+      const model = payload.model || {};
+      const dataset = payload.dataset || {};
+      const matrix = payload.confusion_matrix || {};
+      const decisionRule = payload.decision_rule || {};
+      const predictionDistribution = payload.prediction_distribution || {};
+      const performance = payload.performance || {};
+      const outputSummary = payload.output_summary || {};
+      const trainingHistory = payload.training_history || null;
+
+      const metricCards = [
+        createMetricCard("Accuracy", formatPercent(metrics.accuracy), "Overall correctness across the full dataset."),
+        createMetricCard("True Positive Rate", formatPercent(metrics.true_positive_rate), "Sensitivity / recall on pulsar examples."),
+        createMetricCard("True Negative Rate", formatPercent(metrics.true_negative_rate), "Specificity on non-pulsar examples."),
+        createMetricCard("F1 Score", formatNumber(metrics.f1_score, 6), "Precision-recall balance for positive detection."),
+        createMetricCard("False Positive Rate", formatPercent(metrics.false_positive_rate), "Negative rows incorrectly flagged positive."),
+        createMetricCard("False Negative Rate", formatPercent(metrics.false_negative_rate), "Positive rows missed by the model."),
+        createMetricCard("MCC", formatNumber(metrics.matthews_corrcoef, 6), "Correlation-style score across all four confusion outcomes."),
+        createMetricCard("Inference Time", formatTimeSeconds(performance.inference_seconds), `${formatNumber(performance.samples_per_second, 2)} samples/s`),
+      ].join("");
+
+      const modelRows = [
+        ["backend", model.backend],
+        ["resolved_runtime", model.resolved_runtime],
+        ["format_version", model.format_version],
+        ["output_modifier_name", model.output_modifier_name],
+        ["input_layer_dim", model.input_layer_dim],
+        ["hidden_layer_shapes", model.hidden_layer_shapes],
+        ["layer_activation_funcs", model.layer_activation_funcs],
+        ["raw_outputs_used", model.raw_outputs_used],
+      ];
+
+      const datasetRows = [
+        ["path", dataset.path],
+        ["sample_count", dataset.sample_count],
+        ["feature_count", dataset.feature_count],
+        ["positive_count", dataset.positive_count],
+        ["negative_count", dataset.negative_count],
+        ["prevalence", dataset.prevalence],
+        ["feature_names", dataset.feature_names],
+      ];
+
+      const performanceRows = [
+        ["inference_seconds", performance.inference_seconds],
+        ["samples_per_second", performance.samples_per_second],
+        ["microseconds_per_sample", performance.microseconds_per_sample],
+        ["threshold", decisionRule.threshold],
+        ["threshold_applied", decisionRule.threshold_applied],
+      ];
+
+      const metricRows = Object.entries(metrics);
+      const distributionRows = Object.entries(predictionDistribution);
+      const outputRows = Object.entries(outputSummary || {});
+
+      mainContent.innerHTML = `
+        <div class="headline">
+          <div>
+            <div class="eyebrow">Evaluation Report</div>
+            <div class="headline-title">${escapeHtml(report.label)}</div>
+            <p class="lead">
+              Full-dataset view of model behavior, operating point, inference performance, and every raw JSON field.
+            </p>
+            <div class="path-badge">${escapeHtml(report.sourcePath)}</div>
+          </div>
+          <div class="chip-row">
+            <span class="chip">${escapeHtml(model.backend || "unknown backend")}</span>
+            <span class="chip">${escapeHtml(model.resolved_runtime || "saved runtime")}</span>
+            <span class="chip">${escapeHtml(`${dataset.sample_count || "?"} rows`)}</span>
+          </div>
+        </div>
+
+        <section class="section-grid">
+          <div class="metric-grid">${metricCards}</div>
+
+          <section class="section-card">
+            <div class="section-heading">
+              <h2>Training Loss</h2>
+              <span class="muted">Held-out loss across power-of-two milestones</span>
+            </div>
+            ${createLossChart(trainingHistory)}
+          </section>
+
+          <div class="layout-two">
+            <section class="section-card">
+              <div class="section-heading">
+                <h2>Confusion Matrix</h2>
+                <span class="muted">Absolute counts</span>
+              </div>
+              <div class="matrix">
+                <div class="matrix-card positive">
+                  <div class="matrix-label">True Positives</div>
+                  <div class="matrix-value">${escapeHtml(formatNumber(matrix.true_positives, 0))}</div>
+                  <div class="muted">Correctly predicted pulsars</div>
+                </div>
+                <div class="matrix-card alert">
+                  <div class="matrix-label">False Positives</div>
+                  <div class="matrix-value">${escapeHtml(formatNumber(matrix.false_positives, 0))}</div>
+                  <div class="muted">Negative rows flagged as pulsars</div>
+                </div>
+                <div class="matrix-card neutral">
+                  <div class="matrix-label">True Negatives</div>
+                  <div class="matrix-value">${escapeHtml(formatNumber(matrix.true_negatives, 0))}</div>
+                  <div class="muted">Correctly rejected non-pulsars</div>
+                </div>
+                <div class="matrix-card warning">
+                  <div class="matrix-label">False Negatives</div>
+                  <div class="matrix-value">${escapeHtml(formatNumber(matrix.false_negatives, 0))}</div>
+                  <div class="muted">Missed pulsar rows</div>
+                </div>
+              </div>
+            </section>
+
+            <section class="section-card">
+              <div class="section-heading">
+                <h2>Model + Dataset</h2>
+                <span class="muted">Architecture and sample context</span>
+              </div>
+              <table class="detail-table">
+                <tbody>
+                  ${createTableRows(modelRows)}
+                  ${createTableRows(datasetRows)}
+                </tbody>
+              </table>
+            </section>
+          </div>
+
+          <div class="layout-two">
+            <section class="section-card">
+              <div class="section-heading">
+                <h2>Detailed Metrics</h2>
+                <span class="muted">Rates and summary scores</span>
+              </div>
+              <table class="detail-table">
+                <tbody>${createTableRows(metricRows)}</tbody>
+              </table>
+            </section>
+
+            <section class="section-card">
+              <div class="section-heading">
+                <h2>Operating Point + Performance</h2>
+                <span class="muted">Thresholding and inference throughput</span>
+              </div>
+              <table class="detail-table">
+                <tbody>
+                  ${createTableRows(performanceRows)}
+                  ${createTableRows(distributionRows)}
+                  ${outputRows.length > 0 ? createTableRows(outputRows) : ""}
+                </tbody>
+              </table>
+            </section>
+          </div>
+
+          <section class="section-card">
+            <div class="section-heading">
+              <h2>All JSON Data</h2>
+              <span class="muted">Complete expandable payload</span>
+            </div>
+            <div class="data-tree">${Object.entries(payload).map(([key, value]) => renderValueNode(key, value)).join("")}</div>
+          </section>
+        </section>
+      `;
+    }
+
+    function render() {
+      renderReportList();
+      renderSelectedReport();
+    }
+
+    render();
+  </script>
+</body>
+</html>
