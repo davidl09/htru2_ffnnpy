@@ -1,4 +1,3 @@
-from scipy.io.arff import test
 from ffnnpy.neural_net.accelerated import fit_dataset_accelerated
 import read_htru2_arff
 import numpy as np
@@ -20,7 +19,7 @@ def main():
     x, y, labels = read_htru2_arff.load_htru2()
     
     #split inputs 80% train/20% test
-    train_split = 0.8
+    train_split = 0.7
     dataset_size = y.shape[0]
     train_size = math.ceil(dataset_size * train_split)
     
@@ -32,15 +31,15 @@ def main():
     
     nn = build_accelerated_network(
         input_layer_dim=x.shape[1],
-        hidden_layer_shapes=(128, 128, 64, 8, 1), 
+        hidden_layer_shapes=(128, 64, 32, 1), 
         activation=ActivationFunc.sigmoid,
-        seed=np.random.random_integers(low=0, high=512, size=1)[0], 
+        seed=random.randint(0,512), 
         runtime=AcceleratedRuntime.numba
     )
     
     config = AcceleratedTrainingConfig(
-        learning_rate=0.01,
-        max_power=16,
+        learning_rate=0.1,
+        max_power=17,
         evaluation_points=512,
         runtime=AcceleratedRuntime.numba
     )
@@ -55,6 +54,16 @@ def main():
             evaluation_targets=y_test,
             progress_logger=logger.log
         )
+
+    final_step = result.milestone_steps[-1]
+    test_scores = result.snapshots[final_step].reshape(-1)
+    test_targets = result.evaluation_targets.reshape(-1)
+    test_predictions = (test_scores >= 0.5).astype(test_targets.dtype)
+    test_accuracy = np.mean(test_predictions == test_targets)
+
+    print(f"Reserved test loss: {result.losses[final_step]:.6f}")
+    print(f"Reserved test accuracy: {test_accuracy:.4%}")
+
 
 
 if __name__ == "__main__":
