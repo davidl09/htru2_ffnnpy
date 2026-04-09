@@ -87,6 +87,19 @@ class RunHyperparamSweepHpcTests(unittest.TestCase):
         self.assertEqual(len(flattened), len(items))
         self.assertEqual(sum(item in partitions[0] for item in items), 4)
 
+    def test_max_partition_steps_matches_round_robin_partitioning(self):
+        items = list(range(13))
+        partitions = [
+            self.module.partition_round_robin(items, partition_index=index, partition_count=4)
+            for index in range(4)
+        ]
+
+        self.assertEqual(
+            self.module.max_partition_steps(len(items), 4),
+            max(len(partition) for partition in partitions),
+        )
+        self.assertEqual(self.module.max_partition_steps(0, 4), 0)
+
     def test_spec_directory_name_is_stable_and_sanitized(self):
         spec = self.module.SweepSpec(
             architecture_name="very large tapered",

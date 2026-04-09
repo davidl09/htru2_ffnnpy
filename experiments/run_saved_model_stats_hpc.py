@@ -127,13 +127,25 @@ def default_bundle_viewer_path(output_dir: Path) -> Path:
     return bundle_root_path(output_dir) / DEFAULT_VIEWER_FILENAME
 
 
+def collect_bundle_json_paths(model_paths: Sequence[Path]) -> list[Path]:
+    json_paths: set[Path] = set()
+    for model_path in model_paths:
+        json_paths.update(
+            candidate
+            for candidate in model_path.parent.glob("*.json")
+            if candidate.is_file()
+        )
+    return sorted(json_paths)
+
+
 def bundle_stats_download(
     *,
     output_dir: Path,
-    stats_paths: Sequence[Path],
+    model_paths: Sequence[Path],
 ) -> tuple[Path, Path]:
-    if not stats_paths:
-        raise ValueError("cannot create a bundle without stats JSON files")
+    bundle_json_paths = collect_bundle_json_paths(model_paths)
+    if not bundle_json_paths:
+        raise ValueError("cannot create a bundle without model-folder JSON files")
 
     viewer_path = viewer_source_path()
     if not viewer_path.exists():
@@ -147,12 +159,12 @@ def bundle_stats_download(
     zip_path = default_bundle_zip_path(output_dir)
     with ZipFile(zip_path, "w", compression=ZIP_DEFLATED) as archive:
         archive.write(copied_viewer_path, arcname=DEFAULT_VIEWER_FILENAME)
-        for stats_path in sorted(stats_paths):
+        for json_path in bundle_json_paths:
             if output_dir.is_dir():
-                arcname = str(stats_path.relative_to(output_dir))
+                arcname = str(json_path.relative_to(output_dir))
             else:
-                arcname = stats_path.name
-            archive.write(stats_path, arcname=arcname)
+                arcname = f"{json_path.parent.name}/{json_path.name}"
+            archive.write(json_path, arcname=arcname)
 
     return copied_viewer_path, zip_path
 
@@ -227,14 +239,14 @@ def run_stats_over_output_dir(
         bundle_started = time.perf_counter()
         copied_viewer_path, zip_path = bundle_stats_download(
             output_dir=output_dir,
-            stats_paths=stats_paths,
+            model_paths=model_paths,
         )
         bundle_elapsed = time.perf_counter() - bundle_started
         log(
             "[bundle] "
             f"viewer={copied_viewer_path} "
             f"zip={zip_path} "
-            f"files={len(stats_paths)} "
+            f"models={len(model_paths)} "
             f"elapsed={format_elapsed(bundle_elapsed)}"
         )
 

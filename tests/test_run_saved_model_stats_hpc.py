@@ -150,13 +150,17 @@ class RunSavedModelStatsHpcTests(unittest.TestCase):
             self.assertTrue(viewer_path.exists())
             self.assertTrue(zip_path.exists())
 
+            model_dir = written_stats_paths[0].parent
             with ZipFile(zip_path) as archive:
                 self.assertEqual(
-                    archive.namelist(),
-                    [
+                    set(archive.namelist()),
+                    {
                         self.module.DEFAULT_VIEWER_FILENAME,
+                        str((model_dir / "dataset_split.json").relative_to(output_dir)),
+                        str((model_dir / "hyperparams.json").relative_to(output_dir)),
+                        str((model_dir / "training_history.json").relative_to(output_dir)),
                         str(written_stats_paths[0].relative_to(output_dir)),
-                    ],
+                    },
                 )
 
 

@@ -209,6 +209,16 @@ def partition_round_robin(items: Sequence[T], partition_index: int, partition_co
     return [item for item_index, item in enumerate(items) if item_index % partition_count == partition_index]
 
 
+def max_partition_steps(item_count: int, partition_count: int) -> int:
+    if item_count < 0:
+        raise ValueError("item_count must be non-negative")
+    if partition_count < 1:
+        raise ValueError("partition_count must be at least 1")
+    if item_count == 0:
+        return 0
+    return (item_count + partition_count - 1) // partition_count
+
+
 def _sanitize_name(value: str) -> str:
     lowered = value.strip().lower().replace(" ", "_")
     sanitized = re.sub(r"[^a-z0-9_]+", "-", lowered)
@@ -518,6 +528,7 @@ def _mpi_train_and_stats(
     world_size = comm.Get_size()
     total_specs = len(specs)
     assigned_specs = partition_round_robin(specs, rank, world_size)
+    step_count = max_partition_steps(total_specs, world_size)
 
     overall_started = time.perf_counter()
     features, labels, _ = read_htru2_arff.load_htru2(dataset_path)
@@ -531,39 +542,54 @@ def _mpi_train_and_stats(
         f"output_dir={output_dir}"
     )
     training_started = time.perf_counter()
-    for completed, spec in enumerate(assigned_specs, start=1):
-        model_path = train_spec(
-            features=features,
-            labels=labels,
-            spec=spec,
-            output_dir=output_dir,
-            worker_label=f"rank={rank}",
-        )
-        log(
-            "[train] "
-            f"backend=mpi "
-            f"rank={rank} "
-            f"local_progress={format_progress(completed, len(assigned_specs))} "
-            f"global_total={total_specs} "
-            f"model={model_path} "
-            f"{describe_spec(spec)}"
-        )
+    for step_index in range(step_count):
+        local_completed = min(step_index + 1, len(assigned_specs))
+        spec = None
+        model_path = None
+        if step_index < len(assigned_specs):
+            spec = assigned_specs[step_index]
+            model_path = train_spec(
+                features=features,
+                labels=labels,
+                spec=spec,
+                output_dir=output_dir,
+                worker_label=f"rank={rank}",
+            )
+        global_completed = comm.allreduce(local_completed, op=MPI.SUM)
+        if spec is not None and model_path is not None:
+            log(
+                "[train] "
+                f"backend=mpi "
+                f"rank={rank} "
+                f"local_progress={format_progress(local_completed, len(assigned_specs))} "
+                f"global_progress={format_progress(global_completed, total_specs)} "
+                f"model={model_path} "
+                f"{describe_spec(spec)}"
+            )
 
     training_elapsed = time.perf_counter() - training_started
     comm.Barrier()
     stats_started = time.perf_counter()
-    for completed, spec in enumerate(assigned_specs, start=1):
-        model_path = model_path_for_spec(output_dir, spec)
-        stats_path = write_model_stats(model_path, dataset_path)
-        log(
-            "[stats] "
-            f"backend=mpi "
-            f"rank={rank} "
-            f"local_progress={format_progress(completed, len(assigned_specs))} "
-            f"global_total={total_specs} "
-            f"model={model_path} "
-            f"output={stats_path}"
-        )
+    for step_index in range(step_count):
+        local_completed = min(step_index + 1, len(assigned_specs))
+        spec = None
+        model_path = None
+        stats_path = None
+        if step_index < len(assigned_specs):
+            spec = assigned_specs[step_index]
+            model_path = model_path_for_spec(output_dir, spec)
+            stats_path = write_model_stats(model_path, dataset_path)
+        global_completed = comm.allreduce(local_completed, op=MPI.SUM)
+        if spec is not None and model_path is not None and stats_path is not None:
+            log(
+                "[stats] "
+                f"backend=mpi "
+                f"rank={rank} "
+                f"local_progress={format_progress(local_completed, len(assigned_specs))} "
+                f"global_progress={format_progress(global_completed, total_specs)} "
+                f"model={model_path} "
+                f"output={stats_path}"
+            )
 
     stats_elapsed = time.perf_counter() - stats_started
     total_elapsed = time.perf_counter() - overall_started
