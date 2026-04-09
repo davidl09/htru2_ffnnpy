@@ -1,5 +1,7 @@
 from __future__ import annotations
 
+import contextlib
+import io
 import importlib.util
 import sys
 import tempfile
@@ -105,6 +107,15 @@ class RunHyperparamSweepHpcTests(unittest.TestCase):
         self.assertEqual(self.module.format_elapsed(59.4), "59.4s")
         self.assertEqual(self.module.format_elapsed(61.2), "1m 1.2s")
         self.assertEqual(self.module.format_elapsed(3661.2), "1h 1m 1.2s")
+
+    def test_warn_if_mpi_unavailable_emits_warning(self):
+        stderr = io.StringIO()
+        with patch.object(self.module, "MPI", None):
+            with contextlib.redirect_stderr(stderr):
+                warned = self.module.warn_if_mpi_unavailable()
+
+        self.assertTrue(warned)
+        self.assertIn("mpi4py not found", stderr.getvalue())
 
     def test_smoke_run_writes_expected_artifacts(self):
         with tempfile.TemporaryDirectory() as temp_dir:

@@ -92,6 +92,10 @@ def log(message: str) -> None:
     print(message, flush=True)
 
 
+def log_warning(message: str) -> None:
+    print(message, file=sys.stderr, flush=True)
+
+
 def parse_args(argv: Sequence[str] | None = None) -> argparse.Namespace:
     parser = argparse.ArgumentParser(
         description=(
@@ -150,6 +154,13 @@ def describe_spec(spec: SweepSpec) -> str:
         f"pcw={spec.positive_class_weight:.1f} "
         f"seed={spec.init_seed}"
     )
+
+
+def warn_if_mpi_unavailable() -> bool:
+    if MPI is not None:
+        return False
+    log_warning("[warning] mpi4py not found; falling back to local multiprocessing on available cores.")
+    return True
 
 
 def available_core_count() -> int:
@@ -580,6 +591,7 @@ def main(argv: Sequence[str] | None = None) -> None:
     dataset_path = resolve_project_path(args.dataset_path)
     specs = build_sweep_specs()
 
+    warn_if_mpi_unavailable()
     mpi_active = MPI is not None and MPI.COMM_WORLD.Get_size() > 1
     if mpi_active:
         comm = MPI.COMM_WORLD
