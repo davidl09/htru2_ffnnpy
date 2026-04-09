@@ -153,7 +153,10 @@ class RunSavedModelStatsHpcTests(unittest.TestCase):
             with ZipFile(zip_path) as archive:
                 self.assertEqual(
                     archive.namelist(),
-                    [str(written_stats_paths[0].relative_to(output_dir))],
+                    [
+                        self.module.DEFAULT_VIEWER_FILENAME,
+                        str(written_stats_paths[0].relative_to(output_dir)),
+                    ],
                 )
 
 

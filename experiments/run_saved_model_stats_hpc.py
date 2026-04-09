@@ -146,6 +146,7 @@ def bundle_stats_download(
 
     zip_path = default_bundle_zip_path(output_dir)
     with ZipFile(zip_path, "w", compression=ZIP_DEFLATED) as archive:
+        archive.write(copied_viewer_path, arcname=DEFAULT_VIEWER_FILENAME)
         for stats_path in sorted(stats_paths):
             if output_dir.is_dir():
                 arcname = str(stats_path.relative_to(output_dir))
