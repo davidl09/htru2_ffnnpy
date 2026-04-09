@@ -8,4 +8,9 @@ wheels/
 
 # Virtual environments
 .venv
+
+# Generated result directories
 results/
+
+# Keep the evaluation viewer page versioned.
+!results.bk/htru2_eval_viewer.html
