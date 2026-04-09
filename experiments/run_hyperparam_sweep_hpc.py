@@ -36,7 +36,7 @@ from ffnnpy.neural_net import (
     powers_of_two_milestones,
     save_network,
 )
-from model_hyperparams import DEFAULT_LOSS_FUNC, ModelHyperparameters, write_hyperparameters
+from model_hyperparams import DEFAULT_LOSS_FUNC, ModelHyperparameters, positive_float, write_hyperparameters
 from project_paths import PROJECT_ROOT, resolve_project_path
 from train_model import build_dataset_split
 from training_history import build_training_history_payload, default_training_history_path, write_training_history
@@ -121,6 +121,16 @@ def parse_args(argv: Sequence[str] | None = None) -> argparse.Namespace:
             "absolute filesystem path. Defaults to the bundled dataset."
         ),
     )
+    parser.add_argument(
+        "--positive-class-weight-options",
+        type=positive_float,
+        nargs="+",
+        default=list(POSITIVE_CLASS_WEIGHT_OPTIONS),
+        help=(
+            "Positive-class weights to sweep. Provide one or more values to override "
+            f"the default grid of {list(POSITIVE_CLASS_WEIGHT_OPTIONS)}."
+        ),
+    )
     return parser.parse_args(argv)
 
 
@@ -178,12 +188,21 @@ def default_output_dir() -> Path:
     return PROJECT_ROOT / "experiment_hpc" / f"htru2_hpc_sweep_{stamp}"
 
 
-def build_sweep_specs() -> list[SweepSpec]:
+def build_sweep_specs(
+    *,
+    positive_class_weight_options: Sequence[float] | None = None,
+) -> list[SweepSpec]:
+    resolved_positive_class_weight_options = tuple(
+        float(value)
+        for value in (
+            POSITIVE_CLASS_WEIGHT_OPTIONS if positive_class_weight_options is None else positive_class_weight_options
+        )
+    )
     specs: list[SweepSpec] = []
     for architecture_name, architecture_shape in ARCHITECTURE_CANDIDATES:
         for train_fraction in TRAIN_FRACTION_OPTIONS:
             for learning_rate in LEARNING_RATE_OPTIONS:
-                for positive_class_weight in POSITIVE_CLASS_WEIGHT_OPTIONS:
+                for positive_class_weight in resolved_positive_class_weight_options:
                     for init_seed in INIT_SEED_OPTIONS:
                         specs.append(
                             SweepSpec(
@@ -615,7 +634,9 @@ def _mpi_train_and_stats(
 def main(argv: Sequence[str] | None = None) -> None:
     args = parse_args(argv)
     dataset_path = resolve_project_path(args.dataset_path)
-    specs = build_sweep_specs()
+    specs = build_sweep_specs(
+        positive_class_weight_options=args.positive_class_weight_options,
+    )
 
     warn_if_mpi_unavailable()
     mpi_active = MPI is not None and MPI.COMM_WORLD.Get_size() > 1

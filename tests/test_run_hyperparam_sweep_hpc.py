@@ -65,6 +65,33 @@ class RunHyperparamSweepHpcTests(unittest.TestCase):
             ),
         )
 
+    def test_parse_args_accepts_positive_class_weight_options(self):
+        args = self.module.parse_args(
+            [
+                "--positive-class-weight-options",
+                "1.5",
+                "3.0",
+            ]
+        )
+
+        self.assertEqual(args.positive_class_weight_options, [1.5, 3.0])
+
+    def test_build_sweep_specs_uses_custom_positive_class_weight_options(self):
+        specs = self.module.build_sweep_specs(positive_class_weight_options=(1.5, 3.0))
+
+        self.assertEqual(
+            {spec.positive_class_weight for spec in specs},
+            {1.5, 3.0},
+        )
+        expected_count = (
+            len(self.module.ARCHITECTURE_CANDIDATES)
+            * len(self.module.TRAIN_FRACTION_OPTIONS)
+            * len(self.module.LEARNING_RATE_OPTIONS)
+            * 2
+            * len(self.module.INIT_SEED_OPTIONS)
+        )
+        self.assertEqual(len(specs), expected_count)
+
     def test_available_core_count_prefers_sched_getaffinity(self):
         with patch.object(self.module.os, "sched_getaffinity", return_value={0, 1, 2}, create=True):
             with patch.object(self.module.os, "cpu_count", return_value=99):
