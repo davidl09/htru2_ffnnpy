@@ -100,6 +100,12 @@ class RunHyperparamSweepHpcTests(unittest.TestCase):
             "arch-very_large_tapered__split-0p80__lr-0p03__pcw-2p0__seed-23",
         )
 
+    def test_progress_and_elapsed_formatters_are_stable(self):
+        self.assertEqual(self.module.format_progress(3, 12), "3/12 (25.0%)")
+        self.assertEqual(self.module.format_elapsed(59.4), "59.4s")
+        self.assertEqual(self.module.format_elapsed(61.2), "1m 1.2s")
+        self.assertEqual(self.module.format_elapsed(3661.2), "1h 1m 1.2s")
+
     def test_smoke_run_writes_expected_artifacts(self):
         with tempfile.TemporaryDirectory() as temp_dir:
             output_dir = Path(temp_dir) / "experiment_hpc_smoke"

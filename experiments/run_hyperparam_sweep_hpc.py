@@ -5,6 +5,7 @@ import json
 import os
 import re
 import sys
+import time
 from concurrent.futures import ProcessPoolExecutor, as_completed
 from dataclasses import dataclass
 from datetime import datetime
@@ -70,6 +71,8 @@ _WORKER_FEATURES: np.ndarray | None = None
 _WORKER_LABELS: np.ndarray | None = None
 
 T = TypeVar("T")
+SECONDS_PER_MINUTE = 60.0
+SECONDS_PER_HOUR = 3600.0
 
 
 @dataclass(frozen=True)
@@ -83,6 +86,10 @@ class SweepSpec:
     split_seed: int = DEFAULT_SPLIT_SEED
     milestones: tuple[int, ...] = DEFAULT_MILESTONES
     batch_size: int = DEFAULT_BATCH_SIZE
+
+
+def log(message: str) -> None:
+    print(message, flush=True)
 
 
 def parse_args(argv: Sequence[str] | None = None) -> argparse.Namespace:
@@ -111,6 +118,38 @@ def parse_args(argv: Sequence[str] | None = None) -> argparse.Namespace:
         ),
     )
     return parser.parse_args(argv)
+
+
+def format_elapsed(seconds: float) -> str:
+    if seconds < SECONDS_PER_MINUTE:
+        return f"{seconds:.1f}s"
+
+    if seconds < SECONDS_PER_HOUR:
+        minutes = int(seconds // SECONDS_PER_MINUTE)
+        remaining_seconds = seconds - (minutes * SECONDS_PER_MINUTE)
+        return f"{minutes}m {remaining_seconds:.1f}s"
+
+    hours = int(seconds // SECONDS_PER_HOUR)
+    remaining = seconds - (hours * SECONDS_PER_HOUR)
+    minutes = int(remaining // SECONDS_PER_MINUTE)
+    remaining_seconds = remaining - (minutes * SECONDS_PER_MINUTE)
+    return f"{hours}h {minutes}m {remaining_seconds:.1f}s"
+
+
+def format_progress(completed: int, total: int) -> str:
+    if total < 1:
+        return "0/0 (0.0%)"
+    return f"{completed}/{total} ({100.0 * completed / total:.1f}%)"
+
+
+def describe_spec(spec: SweepSpec) -> str:
+    return (
+        f"arch={spec.architecture_name} "
+        f"split={spec.train_fraction:.2f} "
+        f"lr={spec.learning_rate:.2f} "
+        f"pcw={spec.positive_class_weight:.1f} "
+        f"seed={spec.init_seed}"
+    )
 
 
 def available_core_count() -> int:
@@ -328,36 +367,14 @@ def train_spec(
     output_dir: Path,
     worker_label: str,
 ) -> Path:
-    model_path = _train_single_spec(features=features, labels=labels, spec=spec, output_dir=output_dir)
-    print(
-        "[train] "
-        f"{worker_label} "
-        f"model={model_path} "
-        f"arch={spec.architecture_name} "
-        f"split={spec.train_fraction:.2f} "
-        f"lr={spec.learning_rate:.2f} "
-        f"pcw={spec.positive_class_weight:.1f} "
-        f"seed={spec.init_seed}"
-    )
-    return model_path
+    del worker_label
+    return _train_single_spec(features=features, labels=labels, spec=spec, output_dir=output_dir)
 
 
-def train_specs_in_worker(specs: Sequence[SweepSpec], output_dir: str) -> list[str]:
+def train_spec_in_worker(spec: SweepSpec, output_dir: str) -> str:
     features, labels = _require_worker_dataset()
     output_path = Path(output_dir)
-    worker_label = f"pid={os.getpid()}"
-    return [
-        str(
-            train_spec(
-                features=features,
-                labels=labels,
-                spec=spec,
-                output_dir=output_path,
-                worker_label=worker_label,
-            )
-        )
-        for spec in specs
-    ]
+    return str(_train_single_spec(features=features, labels=labels, spec=spec, output_dir=output_path))
 
 
 def write_model_stats(model_path: Path, dataset_path: Path) -> Path:
@@ -369,7 +386,6 @@ def write_model_stats(model_path: Path, dataset_path: Path) -> Path:
     output_json_path = default_output_json_path(model_path)
     output_json_path.parent.mkdir(parents=True, exist_ok=True)
     output_json_path.write_text(json.dumps(stats, indent=2) + "\n", encoding="utf-8")
-    print(f"[stats] model={model_path} output={output_json_path}")
     return output_json_path
 
 
@@ -392,20 +408,36 @@ def run_local_sweep(
     if jobs < 1:
         raise ValueError("jobs must be at least 1")
 
-    print(f"[setup] local mode jobs={jobs} specs={len(resolved_specs)} output_dir={output_dir}")
+    backend = "single-process" if jobs == 1 else "multiprocessing"
+    total_specs = len(resolved_specs)
+    overall_started = time.perf_counter()
+    training_started = overall_started
+    log(
+        "[setup] "
+        f"backend={backend} "
+        f"jobs={jobs} "
+        f"specs={total_specs} "
+        f"output_dir={output_dir}"
+    )
     if jobs == 1:
         features, labels, _ = read_htru2_arff.load_htru2(dataset_path)
         warm_up_runtime(features, labels, positive_class_weight=POSITIVE_CLASS_WEIGHT_OPTIONS[0])
-        for spec in resolved_specs:
-            train_spec(
+        for completed, spec in enumerate(resolved_specs, start=1):
+            model_path = train_spec(
                 features=features,
                 labels=labels,
                 spec=spec,
                 output_dir=output_dir,
-                worker_label="pid=main",
+                worker_label="main",
+            )
+            log(
+                "[train] "
+                f"backend={backend} "
+                f"progress={format_progress(completed, total_specs)} "
+                f"model={model_path} "
+                f"{describe_spec(spec)}"
             )
     else:
-        worker_specs = [chunk for index in range(jobs) if (chunk := partition_round_robin(resolved_specs, index, jobs))]
         executor = ProcessPoolExecutor(
             max_workers=jobs,
             mp_context=get_context("spawn"),
@@ -413,16 +445,55 @@ def run_local_sweep(
             initargs=(str(dataset_path),),
         )
         try:
-            futures = [executor.submit(train_specs_in_worker, chunk, str(output_dir)) for chunk in worker_specs]
-            for future in as_completed(futures):
-                future.result()
+            future_to_spec = {
+                executor.submit(train_spec_in_worker, spec, str(output_dir)): spec
+                for spec in resolved_specs
+            }
+            for completed, future in enumerate(as_completed(future_to_spec), start=1):
+                model_path = Path(future.result())
+                spec = future_to_spec[future]
+                log(
+                    "[train] "
+                    f"backend={backend} "
+                    f"progress={format_progress(completed, total_specs)} "
+                    f"model={model_path} "
+                    f"{describe_spec(spec)}"
+                )
         except Exception:
             executor.shutdown(wait=False, cancel_futures=True)
             raise
         else:
             executor.shutdown(wait=True, cancel_futures=False)
 
-    return run_stats_for_specs(resolved_specs, output_dir=output_dir, dataset_path=dataset_path)
+    training_elapsed = time.perf_counter() - training_started
+    stats_started = time.perf_counter()
+    stats_paths: list[Path] = []
+    for completed, spec in enumerate(resolved_specs, start=1):
+        model_path = model_path_for_spec(output_dir, spec)
+        stats_path = write_model_stats(model_path, dataset_path)
+        stats_paths.append(stats_path)
+        log(
+            "[stats] "
+            f"backend={backend} "
+            f"progress={format_progress(completed, total_specs)} "
+            f"model={model_path} "
+            f"output={stats_path}"
+        )
+
+    stats_elapsed = time.perf_counter() - stats_started
+    total_elapsed = time.perf_counter() - overall_started
+    log(
+        "[summary] "
+        f"backend={backend} "
+        f"jobs={jobs} "
+        f"trained={total_specs} "
+        f"stats={len(stats_paths)} "
+        f"training_elapsed={format_elapsed(training_elapsed)} "
+        f"stats_elapsed={format_elapsed(stats_elapsed)} "
+        f"total_elapsed={format_elapsed(total_elapsed)} "
+        f"output_dir={output_dir}"
+    )
+    return stats_paths
 
 
 def _mpi_train_and_stats(
@@ -434,27 +505,74 @@ def _mpi_train_and_stats(
     comm = MPI.COMM_WORLD
     rank = comm.Get_rank()
     world_size = comm.Get_size()
+    total_specs = len(specs)
     assigned_specs = partition_round_robin(specs, rank, world_size)
 
+    overall_started = time.perf_counter()
     features, labels, _ = read_htru2_arff.load_htru2(dataset_path)
     warm_up_runtime(features, labels, positive_class_weight=POSITIVE_CLASS_WEIGHT_OPTIONS[0])
-    print(
+    log(
         "[setup] "
+        f"backend=mpi "
         f"mpi rank={rank}/{world_size} "
         f"assigned={len(assigned_specs)} "
+        f"total_specs={total_specs} "
         f"output_dir={output_dir}"
     )
-    for spec in assigned_specs:
-        train_spec(
+    training_started = time.perf_counter()
+    for completed, spec in enumerate(assigned_specs, start=1):
+        model_path = train_spec(
             features=features,
             labels=labels,
             spec=spec,
             output_dir=output_dir,
             worker_label=f"rank={rank}",
         )
+        log(
+            "[train] "
+            f"backend=mpi "
+            f"rank={rank} "
+            f"local_progress={format_progress(completed, len(assigned_specs))} "
+            f"global_total={total_specs} "
+            f"model={model_path} "
+            f"{describe_spec(spec)}"
+        )
 
+    training_elapsed = time.perf_counter() - training_started
     comm.Barrier()
-    run_stats_for_specs(assigned_specs, output_dir=output_dir, dataset_path=dataset_path)
+    stats_started = time.perf_counter()
+    for completed, spec in enumerate(assigned_specs, start=1):
+        model_path = model_path_for_spec(output_dir, spec)
+        stats_path = write_model_stats(model_path, dataset_path)
+        log(
+            "[stats] "
+            f"backend=mpi "
+            f"rank={rank} "
+            f"local_progress={format_progress(completed, len(assigned_specs))} "
+            f"global_total={total_specs} "
+            f"model={model_path} "
+            f"output={stats_path}"
+        )
+
+    stats_elapsed = time.perf_counter() - stats_started
+    total_elapsed = time.perf_counter() - overall_started
+    total_trained = comm.reduce(len(assigned_specs), op=MPI.SUM, root=0)
+    total_stats = comm.reduce(len(assigned_specs), op=MPI.SUM, root=0)
+    max_training_elapsed = comm.reduce(training_elapsed, op=MPI.MAX, root=0)
+    max_stats_elapsed = comm.reduce(stats_elapsed, op=MPI.MAX, root=0)
+    max_total_elapsed = comm.reduce(total_elapsed, op=MPI.MAX, root=0)
+    if rank == 0:
+        log(
+            "[summary] "
+            f"backend=mpi "
+            f"ranks={world_size} "
+            f"trained={total_trained} "
+            f"stats={total_stats} "
+            f"training_elapsed={format_elapsed(max_training_elapsed)} "
+            f"stats_elapsed={format_elapsed(max_stats_elapsed)} "
+            f"total_elapsed={format_elapsed(max_total_elapsed)} "
+            f"output_dir={output_dir}"
+        )
 
 
 def main(argv: Sequence[str] | None = None) -> None:
@@ -482,7 +600,7 @@ def main(argv: Sequence[str] | None = None) -> None:
                 specs=specs,
             )
         except Exception as exc:
-            print(f"[error] rank={rank} {exc}", file=sys.stderr)
+            print(f"[error] backend=mpi rank={rank} {exc}", file=sys.stderr, flush=True)
             MPI.COMM_WORLD.Abort(1)
             raise
         return
