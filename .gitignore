@@ -10,7 +10,7 @@ wheels/
 .venv
 
 # Generated result directories
-results/
+results/**
 
 # Keep the evaluation viewer page versioned.
-!results.bk/htru2_eval_viewer.html
+!results/htru2_eval_viewer.html
