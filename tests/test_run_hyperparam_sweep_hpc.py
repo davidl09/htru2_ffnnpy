@@ -76,6 +76,11 @@ class RunHyperparamSweepHpcTests(unittest.TestCase):
 
         self.assertEqual(args.positive_class_weight_options, [1.5, 3.0])
 
+    def test_parse_args_accepts_jobs_override(self):
+        args = self.module.parse_args(["--jobs", "3"])
+
+        self.assertEqual(args.jobs, 3)
+
     def test_build_sweep_specs_uses_custom_positive_class_weight_options(self):
         specs = self.module.build_sweep_specs(positive_class_weight_options=(1.5, 3.0))
 
@@ -156,6 +161,21 @@ class RunHyperparamSweepHpcTests(unittest.TestCase):
 
         self.assertTrue(warned)
         self.assertIn("mpi4py not found", stderr.getvalue())
+
+    def test_main_passes_jobs_override_to_local_run(self):
+        with tempfile.TemporaryDirectory() as temp_dir:
+            output_dir = Path(temp_dir) / "experiment_hpc_smoke"
+            with patch.object(self.module, "MPI", None), patch.object(
+                self.module,
+                "warn_if_mpi_unavailable",
+            ), patch.object(
+                self.module,
+                "run_local_sweep",
+            ) as run_local_sweep:
+                self.module.main(["--output-dir", str(output_dir), "--jobs", "3"])
+
+            run_local_sweep.assert_called_once()
+            self.assertEqual(run_local_sweep.call_args.kwargs["jobs"], 3)
 
     def test_smoke_run_writes_expected_artifacts(self):
         with tempfile.TemporaryDirectory() as temp_dir:

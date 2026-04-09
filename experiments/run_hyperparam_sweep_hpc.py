@@ -36,7 +36,7 @@ from ffnnpy.neural_net import (
     powers_of_two_milestones,
     save_network,
 )
-from model_hyperparams import DEFAULT_LOSS_FUNC, ModelHyperparameters, positive_float, write_hyperparameters
+from model_hyperparams import DEFAULT_LOSS_FUNC, ModelHyperparameters, positive_float, positive_int, write_hyperparameters
 from project_paths import PROJECT_ROOT, resolve_project_path
 from train_model import build_dataset_split
 from training_history import build_training_history_payload, default_training_history_path, write_training_history
@@ -129,6 +129,15 @@ def parse_args(argv: Sequence[str] | None = None) -> argparse.Namespace:
         help=(
             "Positive-class weights to sweep. Provide one or more values to override "
             f"the default grid of {list(POSITIVE_CLASS_WEIGHT_OPTIONS)}."
+        ),
+    )
+    parser.add_argument(
+        "--jobs",
+        type=positive_int,
+        default=available_core_count(),
+        help=(
+            "Number of worker processes to use when MPI is not active. "
+            "Defaults to the available core count."
         ),
     )
     return parser.parse_args(argv)
@@ -666,11 +675,10 @@ def main(argv: Sequence[str] | None = None) -> None:
 
     output_dir = default_output_dir() if args.output_dir is None else resolve_project_path(args.output_dir)
     output_dir.mkdir(parents=True, exist_ok=True)
-    jobs = available_core_count()
     run_local_sweep(
         output_dir=output_dir,
         dataset_path=dataset_path,
-        jobs=jobs,
+        jobs=args.jobs,
         specs=specs,
     )
 
