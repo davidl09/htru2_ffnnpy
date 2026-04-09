@@ -6,6 +6,7 @@ import tempfile
 import unittest
 from pathlib import Path
 from unittest.mock import patch
+from zipfile import ZipFile
 
 
 ROOT = Path(__file__).resolve().parents[1]
@@ -99,6 +100,61 @@ class RunSavedModelStatsHpcTests(unittest.TestCase):
 
             self.assertEqual(written_stats_paths, [stats_path])
             self.assertTrue(stats_path.exists())
+
+    def test_bundle_download_writes_viewer_and_zip(self):
+        with tempfile.TemporaryDirectory() as temp_dir:
+            output_dir = Path(temp_dir) / "experiment_hpc_smoke"
+            with patch.object(
+                self.sweep_module,
+                "ARCHITECTURE_CANDIDATES",
+                (("tiny_shallow", (4, 1)),),
+            ), patch.object(
+                self.sweep_module,
+                "TRAIN_FRACTION_OPTIONS",
+                (0.70,),
+            ), patch.object(
+                self.sweep_module,
+                "LEARNING_RATE_OPTIONS",
+                (0.01,),
+            ), patch.object(
+                self.sweep_module,
+                "POSITIVE_CLASS_WEIGHT_OPTIONS",
+                (1.0,),
+            ), patch.object(
+                self.sweep_module,
+                "INIT_SEED_OPTIONS",
+                (11,),
+            ), patch.object(
+                self.sweep_module,
+                "DEFAULT_MILESTONES",
+                (1, 2),
+            ):
+                specs = self.sweep_module.build_sweep_specs()
+                self.sweep_module.run_local_sweep(
+                    output_dir=output_dir,
+                    dataset_path=DATASET_PATH,
+                    jobs=1,
+                    specs=specs,
+                )
+
+            written_stats_paths = self.module.run_stats_over_output_dir(
+                output_dir=output_dir,
+                dataset_path=DATASET_PATH,
+                jobs=1,
+                bundle_download=True,
+            )
+
+            self.assertEqual(len(written_stats_paths), 1)
+            viewer_path = self.module.default_bundle_viewer_path(output_dir)
+            zip_path = self.module.default_bundle_zip_path(output_dir)
+            self.assertTrue(viewer_path.exists())
+            self.assertTrue(zip_path.exists())
+
+            with ZipFile(zip_path) as archive:
+                self.assertEqual(
+                    archive.namelist(),
+                    [str(written_stats_paths[0].relative_to(output_dir))],
+                )
 
 
 if __name__ == "__main__":

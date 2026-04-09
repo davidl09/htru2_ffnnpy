@@ -2,12 +2,14 @@ from __future__ import annotations
 
 import argparse
 import json
+import shutil
 import sys
 import time
 from concurrent.futures import ProcessPoolExecutor, as_completed
 from multiprocessing import get_context
 from pathlib import Path
 from typing import Sequence
+from zipfile import ZIP_DEFLATED, ZipFile
 
 ROOT = Path(__file__).resolve().parents[1]
 if str(ROOT) not in sys.path:
@@ -20,6 +22,8 @@ from project_paths import resolve_project_path
 
 
 DEFAULT_MODEL_FILENAME = "model.ffnnpy"
+DEFAULT_BUNDLE_ZIP_FILENAME = "htru2_eval_reports.zip"
+DEFAULT_VIEWER_FILENAME = "htru2_eval_viewer.html"
 
 
 def positive_int(value: str) -> int:
@@ -58,6 +62,14 @@ def parse_args(argv: Sequence[str] | None = None) -> argparse.Namespace:
         type=positive_int,
         default=available_core_count(),
         help="Number of worker processes to use. Defaults to the available core count.",
+    )
+    parser.add_argument(
+        "--bundle-download",
+        action="store_true",
+        help=(
+            "Copy htru2_eval_viewer.html into the sweep output directory and create "
+            "a zip archive of the generated evaluation JSON files for easier download."
+        ),
     )
     return parser.parse_args(argv)
 
@@ -99,11 +111,57 @@ def write_model_stats_in_worker(model_path: str, dataset_path: str) -> str:
     return str(write_model_stats(Path(model_path), Path(dataset_path)))
 
 
+def viewer_source_path() -> Path:
+    return resolve_project_path(Path("results") / DEFAULT_VIEWER_FILENAME)
+
+
+def bundle_root_path(output_dir: Path) -> Path:
+    return output_dir if output_dir.is_dir() else output_dir.parent
+
+
+def default_bundle_zip_path(output_dir: Path) -> Path:
+    return bundle_root_path(output_dir) / DEFAULT_BUNDLE_ZIP_FILENAME
+
+
+def default_bundle_viewer_path(output_dir: Path) -> Path:
+    return bundle_root_path(output_dir) / DEFAULT_VIEWER_FILENAME
+
+
+def bundle_stats_download(
+    *,
+    output_dir: Path,
+    stats_paths: Sequence[Path],
+) -> tuple[Path, Path]:
+    if not stats_paths:
+        raise ValueError("cannot create a bundle without stats JSON files")
+
+    viewer_path = viewer_source_path()
+    if not viewer_path.exists():
+        raise FileNotFoundError(f"viewer HTML not found: {viewer_path}")
+
+    bundle_root = bundle_root_path(output_dir)
+    bundle_root.mkdir(parents=True, exist_ok=True)
+    copied_viewer_path = default_bundle_viewer_path(output_dir)
+    shutil.copyfile(viewer_path, copied_viewer_path)
+
+    zip_path = default_bundle_zip_path(output_dir)
+    with ZipFile(zip_path, "w", compression=ZIP_DEFLATED) as archive:
+        for stats_path in sorted(stats_paths):
+            if output_dir.is_dir():
+                arcname = str(stats_path.relative_to(output_dir))
+            else:
+                arcname = stats_path.name
+            archive.write(stats_path, arcname=arcname)
+
+    return copied_viewer_path, zip_path
+
+
 def run_stats_over_output_dir(
     *,
     output_dir: Path,
     dataset_path: Path,
     jobs: int,
+    bundle_download: bool = False,
 ) -> list[Path]:
     model_paths = discover_model_paths(output_dir)
     if not model_paths:
@@ -161,16 +219,39 @@ def run_stats_over_output_dir(
         else:
             executor.shutdown(wait=True, cancel_futures=False)
 
+    bundle_elapsed = None
+    copied_viewer_path = None
+    zip_path = None
+    if bundle_download:
+        bundle_started = time.perf_counter()
+        copied_viewer_path, zip_path = bundle_stats_download(
+            output_dir=output_dir,
+            stats_paths=stats_paths,
+        )
+        bundle_elapsed = time.perf_counter() - bundle_started
+        log(
+            "[bundle] "
+            f"viewer={copied_viewer_path} "
+            f"zip={zip_path} "
+            f"files={len(stats_paths)} "
+            f"elapsed={format_elapsed(bundle_elapsed)}"
+        )
+
     elapsed = time.perf_counter() - started
-    log(
-        "[summary] "
-        f"backend={backend} "
-        f"jobs={effective_jobs} "
-        f"models={len(model_paths)} "
-        f"stats={len(stats_paths)} "
-        f"elapsed={format_elapsed(elapsed)} "
-        f"output_dir={output_dir}"
-    )
+    summary_parts = [
+        "[summary]",
+        f"backend={backend}",
+        f"jobs={effective_jobs}",
+        f"models={len(model_paths)}",
+        f"stats={len(stats_paths)}",
+        f"elapsed={format_elapsed(elapsed)}",
+        f"output_dir={output_dir}",
+    ]
+    if bundle_download:
+        summary_parts.append("bundle=created")
+        summary_parts.append(f"bundle_elapsed={format_elapsed(bundle_elapsed or 0.0)}")
+        summary_parts.append(f"bundle_zip={zip_path}")
+    log(" ".join(summary_parts))
     return sorted(stats_paths)
 
 
@@ -182,6 +263,7 @@ def main(argv: Sequence[str] | None = None) -> None:
         output_dir=output_dir,
         dataset_path=dataset_path,
         jobs=args.jobs,
+        bundle_download=args.bundle_download,
     )
 
 
